@@ -1,4 +1,6 @@
 mod app;
+mod decoder;
+mod output;
 mod player;
 
 use app::{MusicPlayerApplication, MusicPlayerFlags};
@@ -15,12 +17,18 @@ struct CliArgs {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = CliArgs::parse();
 
-    MusicPlayerApplication::run(Settings {
-        flags: MusicPlayerFlags {
-            file_path: args.file,
-        },
-        ..Default::default()
-    })?;
+    let mut output = output::AudioOutputter::new().unwrap();
+    let mut track = decoder::decode(&args.file).unwrap();
+    while let Ok(buffer) = track.next() {
+        output.write(buffer);
+    }
+
+    // MusicPlayerApplication::run(Settings {
+    //     flags: MusicPlayerFlags {
+    //         file_path: args.file,
+    //     },
+    //     ..Default::default()
+    // })?;
 
     Ok(())
 }

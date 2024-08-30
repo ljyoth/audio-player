@@ -5,12 +5,14 @@ use std::{
 };
 
 use cpal::{
-    traits::HostTrait, BuildStreamError, Device, OutputCallbackInfo, Sample, SizedSample, Stream,
+    traits::{HostTrait, StreamTrait},
+    BuildStreamError, Device, OutputCallbackInfo, Sample, SampleRate, SizedSample, Stream,
     StreamConfig, StreamError, SupportedStreamConfig,
 };
+use iced::advanced::graphics::image::image_rs::buffer;
 use rodio::DeviceTrait;
 use symphonia::core::{
-    audio::{AudioBufferRef, SampleBuffer},
+    audio::{AudioBuffer, AudioBufferRef, RawSample, SampleBuffer, Signal},
     conv::{ConvertibleSample, IntoSample},
 };
 
@@ -47,7 +49,7 @@ impl AudioOutputter {
     }
 }
 
-trait AudioOutputWriter {
+pub(super) trait AudioOutputWriter {
     // TODO: create shared AudioBufferRef
     fn write(&mut self, data: AudioBufferRef);
 }
@@ -55,6 +57,7 @@ trait AudioOutputWriter {
 struct SymphoniaAudioOutputter<T: Sample> {
     stream: Stream,
     tx: SyncSender<T>,
+    sample_rate: u32,
 }
 
 impl<T: SizedSample + ConvertibleSample + Send + 'static> SymphoniaAudioOutputter<T> {
@@ -72,30 +75,82 @@ impl<T: SizedSample + ConvertibleSample + Send + 'static> SymphoniaAudioOutputte
             &config.config(),
             move |data, _| {
                 data.iter_mut().for_each(|d| {
-                    *d = match rx.try_recv() {
-                        Ok(data) => data,
-                        Err(TryRecvError::Empty) => T::MID,
-                        Err(TryRecvError::Disconnected) => panic!("closed"),
-                    }
+                    // *d = match rx.try_recv() {
+                    //     Ok(data) => data,
+                    //     Err(TryRecvError::Empty) => T::MID,
+                    //     Err(TryRecvError::Disconnected) => panic!("closed"),
+                    // };
+                    *d = rx.recv().unwrap();
                 });
             },
             handle_err,
             None,
         )?;
-        Ok(Box::new(SymphoniaAudioOutputter { stream, tx }))
+        stream.play().unwrap();
+
+        Ok(Box::new(SymphoniaAudioOutputter {
+            stream,
+            tx,
+            sample_rate: config.sample_rate().0,
+        }))
     }
 }
 
 impl<T: SizedSample + ConvertibleSample + Send + 'static> AudioOutputWriter
     for SymphoniaAudioOutputter<T>
 {
-    fn write(&mut self, data: AudioBufferRef) {
-        let duration = data.capacity() as u64;
-        let spec = data.spec();
-        let mut sample_buffer = SampleBuffer::<T>::new(duration.into(), *spec);
-        sample_buffer.copy_interleaved_ref(data);
-        sample_buffer.samples().iter().for_each(|&s| {
-            self.tx.send(s);
-        });
+    fn write(&mut self, buffer: AudioBufferRef) {
+        if buffer.frames() == 0 {
+            return;
+        }
+        let spec = buffer.spec();
+        if self.sample_rate != spec.rate {
+            use rubato::*;
+            let params = SincInterpolationParameters {
+                sinc_len: 256,
+                f_cutoff: 0.95,
+                interpolation: SincInterpolationType::Linear,
+                oversampling_factor: 256,
+                window: WindowFunction::BlackmanHarris2,
+            };
+            let mut resampler = SincFixedIn::<f32>::new(
+                self.sample_rate as f64 / spec.rate as f64,
+                2.0,
+                params,
+                buffer.frames(),
+                spec.channels.count(),
+            )
+            .unwrap();
+            // let mut resampler =
+            //     FftFixedIn::new(self.sample_rate as usize, spec.rate as usize, buffer.capacity(), 2, 2).unwrap();
+            let input_chans: Vec<&[f32]> = match buffer {
+                AudioBufferRef::U8(_) => todo!(),
+                AudioBufferRef::U16(_) => todo!(),
+                AudioBufferRef::U24(_) => todo!(),
+                AudioBufferRef::U32(_) => todo!(),
+                AudioBufferRef::S8(_) => todo!(),
+                AudioBufferRef::S16(_) => todo!(),
+                AudioBufferRef::S24(_) => todo!(),
+                AudioBufferRef::S32(_) => todo!(),
+                AudioBufferRef::F32(ref buffer) => {
+                    (0..spec.channels.count()).map(|c| buffer.chan(c))
+                }
+                AudioBufferRef::F64(_) => todo!(),
+            }
+            .collect();
+            let resampled = Resampler::process(&mut resampler, &input_chans, None).unwrap();
+            for i in 0..resampled[0].len() {
+                for ch in 0..resampled.len() {
+                    self.tx.send(resampled[ch][i].into_sample()).unwrap()
+                }
+            }
+        } else {
+            let duration = buffer.capacity() as u64;
+            let mut sample_buffer = SampleBuffer::<T>::new(duration.into(), *spec);
+            sample_buffer.copy_interleaved_ref(buffer);
+            sample_buffer.samples().iter().for_each(|&s| {
+                self.tx.send(s).unwrap();
+            })
+        }
     }
 }
