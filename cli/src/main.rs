@@ -36,9 +36,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // });
 
     let mut player = AudioPlayer::new()?;
-    player.play()?;
+    let mut controls = player.controller().clone();
+    std::thread::spawn(move || {
+        controls.seek(Duration::from_secs(60)).unwrap();
+
+        std::thread::sleep(Duration::from_millis(2000));
+        let pause = std::time::Instant::now();
+        println!("pause {:?}", pause);
+        controls.pause().unwrap();
+        println!("paused {:?}", std::time::Instant::now() - pause);
+        std::thread::sleep(Duration::from_millis(1000));
+        let play = std::time::Instant::now();
+        println!("play {:?}", play - pause);
+        controls.play().unwrap();
+        println!("played {:?}", std::time::Instant::now() - play);
+
+        std::thread::sleep(Duration::from_millis(2000));
+        controls.seek(Duration::from_secs(80)).unwrap();
+    });
+    println!("start {:?}", std::time::Instant::now());
     player.open(args.file)?;
-    player.seek(Duration::from_secs(60))?;
+    player.controller().play()?;
 
     println!("{:?}", std::time::Instant::now());
 

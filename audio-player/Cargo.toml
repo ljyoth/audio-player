@@ -7,4 +7,4 @@ edition = "2021"
 cpal = "0.15.3"
 rtrb = "0.3.1"
 rubato = "0.15.0"
-symphonia = { version = "0.5.4", features = ["opt-simd"] }
+symphonia = { version = "0.5.4", features = ["all", "opt-simd"] }

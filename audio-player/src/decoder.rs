@@ -96,6 +96,7 @@ impl DecodedTrack {
                 track_id: None,
             },
         )?;
+        self.decoder.reset();
         Ok(())
     }
 
