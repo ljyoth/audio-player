@@ -1,7 +1,10 @@
 use rubato::{
     Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
 };
-use symphonia::core::audio::{AudioBuffer, AudioBufferRef, Signal};
+use symphonia::core::{
+    audio::{AudioBuffer, AudioBufferRef, Signal},
+    conv::IntoSample,
+};
 
 use crate::decoder::DecodedTrack;
 
@@ -71,14 +74,14 @@ impl SymphoniaResampler {
                 buffer
                     .chan(c)
                     .iter()
-                    .for_each(|&s| self.input_buffer[c].push(s as f32));
+                    .for_each(|&s| self.input_buffer[c].push(s.into_sample()));
             }),
             AudioBufferRef::F32(ref buffer) => (0..spec.channels.count()).for_each(|c| {
                 self.input_buffer[c].clear();
                 buffer
                     .chan(c)
                     .iter()
-                    .for_each(|&s| self.input_buffer[c].push(s as f32));
+                    .for_each(|&s| self.input_buffer[c].push(s.into_sample()));
             }),
             AudioBufferRef::F64(_) => todo!(),
         };
