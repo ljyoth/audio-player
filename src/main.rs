@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         if let Some(ref mut resampler) = resampler {
             let buffer = resampler.resample(buffer);
-            output.write_f32(buffer);
+            output.write(buffer);
         } else {
             println!("writing...");
             output.write(buffer);
