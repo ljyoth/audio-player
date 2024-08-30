@@ -2,10 +2,12 @@ mod app;
 mod decoder;
 mod output;
 mod player;
+mod resampler;
 
 use app::{MusicPlayerApplication, MusicPlayerFlags};
 use clap::Parser;
 use iced::{Application, Settings};
+use resampler::SymphoniaResampler;
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
@@ -19,8 +21,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut output = output::AudioOutputter::new().unwrap();
     let mut track = decoder::decode(&args.file).unwrap();
+    let mut resampler = None;
     while let Ok(buffer) = track.next() {
-        output.write(buffer);
+        if resampler.is_none() && buffer.spec().rate != *output.sample_rate() {
+            resampler = Some(SymphoniaResampler::new(*output.sample_rate(), &buffer));
+        }
+        if let Some(ref mut resampler) = resampler {
+            let buffer = resampler.resample(buffer);
+            output.write_f32(buffer);
+        } else {
+            println!("writing...");
+            output.write(buffer);
+        }
     }
 
     // MusicPlayerApplication::run(Settings {

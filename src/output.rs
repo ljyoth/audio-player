@@ -2,6 +2,7 @@ use std::{
     error::Error,
     iter,
     sync::mpsc::{self, SyncSender, TryRecvError},
+    time::Duration,
 };
 
 use cpal::{
@@ -52,6 +53,8 @@ impl AudioOutputter {
 pub(super) trait AudioOutputWriter {
     // TODO: create shared AudioBufferRef
     fn write(&mut self, data: AudioBufferRef);
+    fn write_f32(&mut self, data: &[f32]);
+    fn sample_rate(&self) -> &u32;
 }
 
 struct SymphoniaAudioOutputter<T: Sample> {
@@ -75,12 +78,13 @@ impl<T: SizedSample + ConvertibleSample + Send + 'static> SymphoniaAudioOutputte
             &config.config(),
             move |data, _| {
                 data.iter_mut().for_each(|d| {
-                    // *d = match rx.try_recv() {
-                    //     Ok(data) => data,
-                    //     Err(TryRecvError::Empty) => T::MID,
-                    //     Err(TryRecvError::Disconnected) => panic!("closed"),
-                    // };
-                    *d = rx.recv().unwrap();
+                    *d = match rx.try_recv() {
+                        Ok(data) => data,
+                        Err(TryRecvError::Empty) => {
+                            T::MID
+                        }
+                        Err(TryRecvError::Disconnected) => panic!("closed"),
+                    }
                 });
             },
             handle_err,
@@ -106,23 +110,28 @@ impl<T: SizedSample + ConvertibleSample + Send + 'static> AudioOutputWriter
         let spec = buffer.spec();
         if self.sample_rate != spec.rate {
             use rubato::*;
-            let params = SincInterpolationParameters {
-                sinc_len: 256,
-                f_cutoff: 0.95,
-                interpolation: SincInterpolationType::Linear,
-                oversampling_factor: 256,
-                window: WindowFunction::BlackmanHarris2,
-            };
             let mut resampler = SincFixedIn::<f32>::new(
                 self.sample_rate as f64 / spec.rate as f64,
                 2.0,
-                params,
+                SincInterpolationParameters {
+                    sinc_len: 256,
+                    f_cutoff: 0.95,
+                    interpolation: SincInterpolationType::Linear,
+                    oversampling_factor: 256,
+                    window: WindowFunction::BlackmanHarris2,
+                },
                 buffer.frames(),
                 spec.channels.count(),
             )
             .unwrap();
-            // let mut resampler =
-            //     FftFixedIn::new(self.sample_rate as usize, spec.rate as usize, buffer.capacity(), 2, 2).unwrap();
+            // let mut resampler = FftFixedIn::new(
+            //     self.sample_rate as usize,
+            //     spec.rate as usize,
+            //     buffer.frames(),
+            //     2,
+            //     spec.channels.count(),
+            // )
+            // .unwrap();
             let input_chans: Vec<&[f32]> = match buffer {
                 AudioBufferRef::U8(_) => todo!(),
                 AudioBufferRef::U16(_) => todo!(),
@@ -138,12 +147,30 @@ impl<T: SizedSample + ConvertibleSample + Send + 'static> AudioOutputWriter
                 AudioBufferRef::F64(_) => todo!(),
             }
             .collect();
-            let resampled = Resampler::process(&mut resampler, &input_chans, None).unwrap();
-            for i in 0..resampled[0].len() {
-                for ch in 0..resampled.len() {
-                    self.tx.send(resampled[ch][i].into_sample()).unwrap()
+            let mut output_buffer = Resampler::output_buffer_allocate(&resampler, true);
+            let (input_frames, output_frames) = Resampler::process_into_buffer(
+                &mut resampler,
+                &input_chans,
+                &mut output_buffer,
+                None,
+            )
+            .unwrap();
+            println!(
+                "{} {} {} {}",
+                input_frames,
+                output_frames,
+                output_buffer[0].len(),
+                output_buffer.len()
+            );
+            let mut interleaved = Vec::with_capacity(output_frames * spec.channels.count());
+            for i in 0..output_frames {
+                for ch in 0..spec.channels.count() {
+                    interleaved.push(output_buffer[ch][i]);
                 }
             }
+            interleaved.iter().for_each(|&s| {
+                self.tx.send(s.into_sample()).unwrap();
+            })
         } else {
             let duration = buffer.capacity() as u64;
             let mut sample_buffer = SampleBuffer::<T>::new(duration.into(), *spec);
@@ -152,5 +179,15 @@ impl<T: SizedSample + ConvertibleSample + Send + 'static> AudioOutputWriter
                 self.tx.send(s).unwrap();
             })
         }
+    }
+
+    fn write_f32(&mut self, data: &[f32]) {
+        data.iter().for_each(|&s| {
+            self.tx.send(s.into_sample()).unwrap();
+        })
+    }
+
+    fn sample_rate(&self) -> &u32 {
+        &self.sample_rate
     }
 }

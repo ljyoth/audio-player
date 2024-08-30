@@ -86,4 +86,12 @@ impl DecodedTrack {
         let decoded = self.decoder.decode(&packet)?;
         Ok(decoded)
     }
+
+    pub(super) fn reader(&self) -> &Box<dyn FormatReader> {
+        &self.reader
+    }
+
+    pub(super) fn decoder(&self) -> &Box<dyn Decoder> {
+        &self.decoder
+    }
 }
