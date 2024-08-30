@@ -1,15 +1,10 @@
-[package]
-name = "music-player"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+resolver = "2"
+members = [
+    "audio-player",
+    "cli",
+    "gui-iced",
+]
 
-[dependencies]
+[workspace.dependencies]
 clap = { version = "4.5.16", features = ["derive"] }
-cpal = "0.15.3"
-iced = { version = "0.12.1", features = ["image", "lazy", "smol", "svg"] }
-iced_aw = { version = "0.9.3", features = ["menu", "quad", "slide_bar"] }
-rfd = "0.14.1"
-rodio = { version = "0.19.0" }
-rtrb = "0.3.1"
-rubato = "0.15.0"
-symphonia = { version = "0.5.4", features = ["opt-simd"] }

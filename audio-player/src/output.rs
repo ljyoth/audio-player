@@ -6,12 +6,10 @@ use std::{
 };
 
 use cpal::{
-    traits::{HostTrait, StreamTrait},
+    traits::{DeviceTrait, HostTrait, StreamTrait},
     BuildStreamError, Device, OutputCallbackInfo, Sample, SampleRate, SizedSample, Stream,
     StreamConfig, StreamError, SupportedStreamConfig,
 };
-use iced::advanced::graphics::image::image_rs::buffer;
-use rodio::DeviceTrait;
 use rtrb::Producer;
 use symphonia::core::{
     audio::{AudioBuffer, AudioBufferRef, RawSample, SampleBuffer, Signal},

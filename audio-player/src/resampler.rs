@@ -127,7 +127,7 @@ impl SymphoniaResampler {
                 })
         });
 
-        println!(
+        eprintln!(
             "input_buffer: {} input: {} output: {} output_buffer_capacity: {} output_buffer_frames: {}",
             buffer.frames(),
             input_frames,

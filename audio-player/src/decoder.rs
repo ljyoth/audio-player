@@ -3,12 +3,13 @@ use std::{
     fs::File,
     marker::PhantomData,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use symphonia::core::{
     audio::AudioBufferRef,
     codecs::{Decoder, DecoderOptions},
-    formats::{FormatOptions, FormatReader},
+    formats::{FormatOptions, FormatReader, SeekMode, SeekTo},
     io::MediaSourceStream,
     meta::MetadataOptions,
     probe::Hint,
@@ -85,6 +86,17 @@ impl DecodedTrack {
 
         let decoded = self.decoder.decode(&packet)?;
         Ok(decoded)
+    }
+
+    pub(super) fn seek(&mut self, progress: Duration) -> Result<(), Box<dyn Error>> {
+        self.reader.seek(
+            SeekMode::Accurate,
+            SeekTo::Time {
+                time: progress.into(),
+                track_id: None,
+            },
+        )?;
+        Ok(())
     }
 
     pub(super) fn reader(&self) -> &Box<dyn FormatReader> {
