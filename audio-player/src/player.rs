@@ -1,8 +1,13 @@
 use std::{
     error::Error,
     io::Seek,
-    path::Path,
-    sync::{Arc, Condvar, Mutex},
+    ops::Deref,
+    path::{Path, PathBuf},
+    sync::{
+        mpsc::{self, Sender},
+        Arc, Condvar, LockResult, Mutex, MutexGuard,
+    },
+    thread::JoinHandle,
     time::Duration,
 };
 
@@ -13,21 +18,18 @@ use crate::{
 };
 
 pub struct AudioPlayer {
-    output: Box<dyn AudioOutputWriter>,
     controller: AudioPlayerController,
-    current: Option<DecodedTrack>,
+    executor: AudioPlayerExecutor,
 }
 
 impl AudioPlayer {
-    pub fn new() -> Result<Self, Box<dyn Error>> {
-        let output = AudioOutputter::new()?;
-        let state = Arc::new(AudioPlayerControllerState::new());
-        let controller = AudioPlayerController::new(state);
-        Ok(Self {
-            output,
+    pub fn new() -> Self {
+        let controller = AudioPlayerController::new();
+        let executor = AudioPlayerExecutor::new(controller.clone());
+        Self {
             controller,
-            current: None,
-        })
+            executor,
+        }
     }
 
     pub fn controller(&mut self) -> &mut AudioPlayerController {
@@ -35,106 +37,125 @@ impl AudioPlayer {
     }
 
     pub fn open<F: AsRef<Path>>(&mut self, file: F) -> Result<(), Box<dyn Error>> {
-        self.current = Some(decoder::decode(&file)?);
-        let mut resampler = None;
-        loop {
-            // TODO: use one mutex
-            if let Some(seek_position) = self.controller.state.seek_position()? {
-                self.seek(seek_position)?;
-                self.controller.state.reset_seek_position()?;
-            }
-            self.controller.state.wait_for_playing();
-
-            let track = self.current.as_mut().ok_or("TODO")?;
-            if let Ok(buffer) = track.next() {
-                if resampler.is_none() && buffer.spec().rate != *self.output.sample_rate() {
-                    resampler = Some(SymphoniaResampler::new(*self.output.sample_rate(), &buffer));
-                }
-                let buffer = match resampler {
-                    Some(ref mut resampler) => resampler.resample(buffer),
-                    None => buffer,
-                };
-
-                self.output.write(buffer);
-            } else {
-                break;
-            }
-        }
+        self.executor.queue(file)?;
         Ok(())
     }
 
-    fn seek(&mut self, progress: Duration) -> Result<(), Box<dyn Error>> {
-        // TODO: skip packets
-        match self.current {
-            Some(ref mut track) => track.seek(progress)?,
-            None => todo!(),
-        }
+    pub fn wait_until_end(self) -> Result<(), Box<dyn Error>> {
+        self.executor.wait_until_end()?;
         Ok(())
     }
 }
 
 #[derive(Clone)]
 pub struct AudioPlayerController {
-    state: Arc<AudioPlayerControllerState>,
+    state: Arc<Mutex<AudioPlayerControllerState>>,
+    cond_var: Arc<Condvar>,
 }
 
 impl AudioPlayerController {
-    fn new(state: Arc<AudioPlayerControllerState>) -> Self {
-        Self { state }
+    fn new() -> Self {
+        let state = Arc::new(Mutex::new(AudioPlayerControllerState::new()));
+        let cond_var = Arc::new(Condvar::new());
+        Self { state, cond_var }
     }
 
     pub fn play(&mut self) -> Result<(), Box<dyn Error>> {
-        let mut playing = self.state.playing.0.lock().unwrap();
-        *playing = true;
-        self.state.playing.1.notify_all();
+        let mut state = self.state.lock().unwrap();
+        (*state).playing = true;
+        self.cond_var.notify_all();
         Ok(())
     }
 
     pub fn pause(&mut self) -> Result<(), Box<dyn Error>> {
-        let mut playing = self.state.playing.0.lock().unwrap();
-        *playing = false;
-        self.state.playing.1.notify_all();
+        let mut state = self.state.lock().unwrap();
+        (*state).playing = false;
+        self.cond_var.notify_all();
         Ok(())
     }
 
     pub fn seek(&mut self, progress: Duration) -> Result<(), Box<dyn Error>> {
-        let mut seeking = self.state.seek_position.lock().unwrap();
-        *seeking = Some(progress);
+        let mut state = self.state.lock().unwrap();
+        (*state).seek_position = Some(progress);
         Ok(())
     }
 }
 
 struct AudioPlayerControllerState {
-    playing: (Mutex<bool>, Condvar),
-    seek_position: Mutex<Option<Duration>>,
+    playing: bool,
+    seek_position: Option<Duration>,
 }
 
 impl AudioPlayerControllerState {
     fn new() -> Self {
-        let playing = (Mutex::new(false), Condvar::new());
-        let seek_position = Mutex::new(None);
+        let playing = false;
+        let seek_position = None;
         Self {
             playing,
             seek_position,
         }
     }
+}
 
-    fn wait_for_playing(&self) {
-        let mut playing = self.playing.0.lock().unwrap();
-        while !*playing {
-            playing = self.playing.1.wait(playing).unwrap();
-        }
+struct AudioPlayerExecutor {
+    tx: Sender<PathBuf>,
+    handle: JoinHandle<()>,
+}
+
+impl AudioPlayerExecutor {
+    fn new(controller: AudioPlayerController) -> Self {
+        let (tx, rx) = mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            let run = move || -> Result<(), Box<dyn Error>> {
+                let mut output = AudioOutputter::new()?;
+                while let Ok(file) = rx.recv() {
+                    let mut track = decoder::decode(&file)?;
+                    let mut resampler = None;
+                    loop {
+                        // TODO: use one mutex
+                        {
+                            let mut state = controller.state.lock().unwrap();
+                            if let Some(seek_position) = state.seek_position {
+                                // TODO: skip packets
+                                track.seek(seek_position)?;
+                                (*state).seek_position = None;
+                            }
+                            while !state.playing {
+                                state = controller.cond_var.wait(state).unwrap();
+                            }
+                        }
+
+                        if let Ok(buffer) = track.next() {
+                            if resampler.is_none() && buffer.spec().rate != *output.sample_rate() {
+                                resampler =
+                                    Some(SymphoniaResampler::new(*output.sample_rate(), &buffer));
+                            }
+                            let buffer = match resampler {
+                                Some(ref mut resampler) => resampler.resample(buffer),
+                                None => buffer,
+                            };
+
+                            output.write(buffer);
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                Ok(())
+            };
+            run();
+        });
+
+        Self { tx, handle }
     }
 
-    /// Returns None if not seeking
-    fn seek_position(&self) -> Result<Option<Duration>, Box<dyn Error>> {
-        let seek = self.seek_position.lock().unwrap();
-        Ok(seek.clone())
+    fn queue<F: AsRef<Path>>(&mut self, file: F) -> Result<(), Box<dyn Error>> {
+        self.tx.send(file.as_ref().to_path_buf())?;
+        Ok(())
     }
 
-    fn reset_seek_position(&self) -> Result<(), Box<dyn Error>> {
-        let mut seek = self.seek_position.lock().unwrap();
-        *seek = None;
+    fn wait_until_end(self) -> Result<(), Box<dyn Error>> {
+        self.handle.join().unwrap();
         Ok(())
     }
 }

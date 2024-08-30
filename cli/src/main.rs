@@ -18,47 +18,26 @@ struct CliArgs {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = CliArgs::parse();
 
-    // let play = Arc::new((Mutex::new(true), Condvar::new()));
-    // let play_clone = play.clone();
-    // std::thread::spawn(move || {
-    //     std::thread::sleep(Duration::from_millis(1000));
-    //     let mut playing = play_clone.0.lock().unwrap();
-    //     *playing = false;
-    //     play_clone.1.notify_all();
-    //     drop(playing);
-    //     println!("{:?}", std::time::Instant::now());
-    //     std::thread::sleep(Duration::from_millis(1000));
-    //     let mut playing = play_clone.0.lock().unwrap();
-    //     *playing = true;
-    //     play_clone.1.notify_all();
-    //     drop(playing);
-    //     println!("{:?}", std::time::Instant::now());
-    // });
-
-    let mut player = AudioPlayer::new()?;
-    let mut controls = player.controller().clone();
-    std::thread::spawn(move || {
-        controls.seek(Duration::from_secs(60)).unwrap();
-
-        std::thread::sleep(Duration::from_millis(2000));
-        let pause = std::time::Instant::now();
-        println!("pause {:?}", pause);
-        controls.pause().unwrap();
-        println!("paused {:?}", std::time::Instant::now() - pause);
-        std::thread::sleep(Duration::from_millis(1000));
-        let play = std::time::Instant::now();
-        println!("play {:?}", play - pause);
-        controls.play().unwrap();
-        println!("played {:?}", std::time::Instant::now() - play);
-
-        std::thread::sleep(Duration::from_millis(2000));
-        controls.seek(Duration::from_secs(80)).unwrap();
-    });
+    let mut player = AudioPlayer::new();
     println!("start {:?}", std::time::Instant::now());
     player.open(args.file)?;
     player.controller().play()?;
 
-    println!("{:?}", std::time::Instant::now());
+    std::thread::sleep(Duration::from_millis(2000));
+    let pause = std::time::Instant::now();
+    println!("pause {:?}", pause);
+    player.controller().pause().unwrap();
+    println!("paused {:?}", std::time::Instant::now() - pause);
+    std::thread::sleep(Duration::from_millis(1000));
+    let play = std::time::Instant::now();
+    println!("play {:?}", play - pause);
+    player.controller().play().unwrap();
+    println!("played {:?}", std::time::Instant::now() - play);
+
+    std::thread::sleep(Duration::from_millis(2000));
+    player.controller().seek(Duration::from_secs(200)).unwrap();
+
+    player.wait_until_end()?;
 
     Ok(())
 }
