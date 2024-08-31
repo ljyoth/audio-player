@@ -173,6 +173,7 @@ impl AudioPlayerExecutor {
     }
 
     fn wait_until_end(self) -> Result<(), Box<dyn Error>> {
+        drop(self.tx);
         self.handle.join().unwrap();
         Ok(())
     }
