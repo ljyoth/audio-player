@@ -1,10 +1,4 @@
-use std::{
-    error::Error,
-    fs::File,
-    marker::PhantomData,
-    path::{Path, PathBuf},
-    time::Duration,
-};
+use std::{error::Error, fs::File, path::Path, time::Duration};
 
 use symphonia::core::{
     audio::AudioBufferRef,
@@ -15,6 +9,7 @@ use symphonia::core::{
     probe::Hint,
     units::TimeStamp,
 };
+use tracing::info;
 
 pub(super) fn decode<P: AsRef<Path>>(path: &P) -> Result<DecodedTrack, Box<dyn Error>> {
     let mss = MediaSourceStream::new(Box::new(File::open(path.as_ref())?), Default::default());
@@ -31,28 +26,29 @@ pub(super) fn decode<P: AsRef<Path>>(path: &P) -> Result<DecodedTrack, Box<dyn E
 
     if let Some(metadata) = probed.format.metadata().current() {
         metadata.tags().iter().for_each(|tag| match tag {
-            _ => println!("{} {:?} {}", tag.key, tag.std_key, tag.value),
+            _ => info!("{} {:?} {}", tag.key, tag.std_key, tag.value),
         });
     }
     if let Some(metadata) = probed.metadata.get() {
         if let Some(metadata) = metadata.current() {
             metadata.tags().iter().for_each(|tag| match tag {
-                _ => println!("{} {:?} {}", tag.key, tag.std_key, tag.value),
+                _ => info!("{} {:?} {}", tag.key, tag.std_key, tag.value),
             });
         }
     }
-    // let duration = probed
-    //     .format
-    //     .default_track()
-    //     .map(|track| {
-    //         if let Some(time_base) = track.codec_params.time_base {
-    //             if let Some(n_frames) = track.codec_params.n_frames {
-    //                 return Some(time_base.calc_time(n_frames).into());
-    //             }
-    //         }
-    //         None
-    //     })
-    //     .flatten();
+    let duration = probed
+        .format
+        .default_track()
+        .map(|track| {
+            if let Some(time_base) = track.codec_params.time_base {
+                if let Some(n_frames) = track.codec_params.n_frames {
+                    return Some(time_base.calc_time(n_frames).into());
+                }
+            }
+            None
+        })
+        .flatten()
+        .unwrap();
 
     let track = probed.format.default_track().unwrap();
     let decoder =
@@ -61,6 +57,7 @@ pub(super) fn decode<P: AsRef<Path>>(path: &P) -> Result<DecodedTrack, Box<dyn E
     Ok(DecodedTrack {
         reader: probed.format,
         decoder,
+        duration,
         progress,
         next_packet: None,
     })
@@ -69,6 +66,7 @@ pub(super) fn decode<P: AsRef<Path>>(path: &P) -> Result<DecodedTrack, Box<dyn E
 pub(super) struct DecodedTrack {
     reader: Box<dyn FormatReader>,
     decoder: Box<dyn Decoder>,
+    duration: Duration,
     progress: TimeStamp,
     // buffer next_packet call to accurately determine progress after seek call
     next_packet: Option<Packet>,
@@ -89,7 +87,7 @@ impl DecodedTrack {
             self.reader.metadata().pop();
             if let Some(metadata) = self.reader.metadata().current() {
                 metadata.tags().iter().for_each(|tag| match tag {
-                    _ => println!("{} {:?} {}", tag.key, tag.std_key, tag.value),
+                    _ => info!("{} {:?} {}", tag.key, tag.std_key, tag.value),
                 });
             }
         }
@@ -120,6 +118,10 @@ impl DecodedTrack {
         self.decoder.reset();
         self.next_packet = Some(self.next_packet()?);
         Ok(())
+    }
+
+    pub(super) fn duration(&self) -> Duration {
+        self.duration
     }
 
     pub(super) fn progress(&self) -> Duration {

@@ -8,6 +8,7 @@ use symphonia::core::{
     conv::IntoSample,
     units::Duration,
 };
+use tracing::{debug, info, trace};
 
 use crate::{decoder::DecodedTrack, output};
 
@@ -59,7 +60,7 @@ impl SymphoniaResampler {
                 channels: spec.channels,
             },
         );
-        println!(
+        info!(
             "output_buffer_len: {} interleaved_length: {} output_buffer_capacity: {} output_buffer_frames: {}\n",
             output_buffer[0].len(),
             interleaved.len(),
@@ -127,7 +128,7 @@ impl SymphoniaResampler {
                 })
         });
 
-        eprintln!(
+        debug!(
             "input_buffer: {} input: {} output: {} output_buffer_capacity: {} output_buffer_frames: {}",
             buffer.frames(),
             input_frames,
@@ -176,7 +177,7 @@ impl SymphoniaResampler {
             None,
         )
         .unwrap();
-        // println!(
+        // info!(
         //     "input_buffer: {} input: {} output: {} output_buffer: {} channels: {}",
         //     buffer.frames(),
         //     input_frames,

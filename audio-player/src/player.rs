@@ -36,6 +36,7 @@ impl AudioPlayer {
         &mut self.controller
     }
 
+    // TODO: returnable DecodedTrack that is queueable
     pub fn open<F: AsRef<Path>>(&mut self, file: F) -> Result<(), Box<dyn Error>> {
         self.executor.queue(file)?;
         Ok(())
@@ -80,6 +81,11 @@ impl AudioPlayerController {
         Ok(())
     }
 
+    pub fn duration(&self) -> Result<Duration, Box<dyn Error>> {
+        let state = self.state.lock().unwrap();
+        Ok(state.duration.ok_or("unavailable")?)
+    }
+
     pub fn position(&self) -> Result<Duration, Box<dyn Error>> {
         let state = self.state.lock().unwrap();
         Ok(state.position.ok_or("unavailable")?)
@@ -97,6 +103,7 @@ impl AudioPlayerController {
 
 struct AudioPlayerControllerState {
     playing: bool,
+    duration: Option<Duration>,
     position: Option<Duration>,
     seek_position: Option<Duration>,
 }
@@ -104,10 +111,12 @@ struct AudioPlayerControllerState {
 impl AudioPlayerControllerState {
     fn new() -> Self {
         let playing = false;
-        let position = Some(Duration::from_secs(0));
+        let duration = None;
+        let position = None;
         let seek_position = None;
         Self {
             playing,
+            duration,
             position,
             seek_position,
         }
@@ -128,6 +137,10 @@ impl AudioPlayerExecutor {
                 while let Ok(file) = rx.recv() {
                     let mut track = decoder::decode(&file)?;
                     let mut resampler = None;
+                    {
+                        let mut state = controller.state.lock().unwrap();
+                        (*state).duration = Some(track.duration());
+                    }
                     loop {
                         {
                             let mut state = controller.state.lock().unwrap();

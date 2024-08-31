@@ -15,6 +15,7 @@ use symphonia::core::{
     audio::{AudioBuffer, AudioBufferRef, RawSample, SampleBuffer, Signal},
     conv::{ConvertibleSample, IntoSample},
 };
+use tracing::info;
 
 pub(super) struct AudioOutputter;
 
@@ -23,13 +24,13 @@ impl AudioOutputter {
         let host = cpal::default_host();
         let device = host.default_output_device().ok_or("no device")?;
         let config = device.default_output_config()?;
-        println!("default: {:?}", config);
+        info!("default: {:?}", config);
         let supported = device
             .supported_output_configs()?
             .next()
             .ok_or("no supported output configs")?
             .with_max_sample_rate();
-        println!("supported: {:?}", supported);
+        info!("supported: {:?}", supported);
 
         let writer = match config.sample_format() {
             cpal::SampleFormat::I8 => SymphoniaAudioOutputter::<i8>::new(&device, &config),
@@ -162,7 +163,7 @@ impl<T: SizedSample + ConvertibleSample + Send + 'static> AudioOutputWriter
                 None,
             )
             .unwrap();
-            println!(
+            info!(
                 "{} {} {} {}",
                 input_frames,
                 output_frames,

@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 audio-player = { path = "../audio-player" }
 clap = { workspace = true }
+indicatif = "0.17.8"
