@@ -1,14 +1,21 @@
-use std::borrow::Borrow;
-
 use rubato::{
-    Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
+    ResampleError, Resampler, ResamplerConstructionError, SincFixedIn, SincInterpolationParameters,
+    SincInterpolationType, WindowFunction,
 };
 use symphonia::core::{
-    audio::{AsAudioBufferRef, AudioBuffer, AudioBufferRef, Channels, Signal, SignalSpec},
+    audio::{AsAudioBufferRef, AudioBuffer, AudioBufferRef, Signal, SignalSpec},
     conv::IntoSample,
     units::Duration,
 };
 use tracing::{debug, info};
+
+#[derive(Debug, thiserror::Error)]
+pub(super) enum ResamplerError {
+    #[error("Rubato ResamplerConstructionError: {0}")]
+    RubatoResamplerConstruction(#[from] ResamplerConstructionError),
+    #[error("Rubato ResampleError: {0}")]
+    RubatoResample(#[from] ResampleError),
+}
 
 pub(super) struct SymphoniaResampler {
     resampler: SincFixedIn<f32>,
@@ -19,7 +26,10 @@ pub(super) struct SymphoniaResampler {
 }
 
 impl SymphoniaResampler {
-    pub(super) fn new(output_sample_rate: u32, buffer: &AudioBufferRef) -> Self {
+    pub(super) fn new(
+        output_sample_rate: u32,
+        buffer: &AudioBufferRef,
+    ) -> Result<Self, ResamplerError> {
         let spec = buffer.spec();
         let resampler = SincFixedIn::<f32>::new(
             output_sample_rate as f64 / spec.rate as f64,
@@ -33,8 +43,7 @@ impl SymphoniaResampler {
             },
             buffer.frames(),
             spec.channels.count(),
-        )
-        .unwrap();
+        )?;
         // let mut resampler = FftFixedIn::new(
         //     self.sample_rate as usize,
         //     spec.rate as usize,
@@ -65,21 +74,21 @@ impl SymphoniaResampler {
             output_audio_buffer.capacity(),
             output_audio_buffer.frames()
         );
-        Self {
+        Ok(Self {
             resampler,
             input_buffer,
             output_buffer,
             output_audio_buffer,
             interleaved,
-        }
+        })
     }
 
-    pub(super) fn resample(&mut self, buffer: AudioBufferRef) -> AudioBufferRef {
+    pub(super) fn resample(
+        &mut self,
+        buffer: AudioBufferRef,
+    ) -> Result<AudioBufferRef, ResamplerError> {
         let spec = buffer.spec();
 
-        // fn convert_to_input_buffer<T>(buffer: AudioBuffer<T>, &mut input_buffer: Vec<Vec<f32>>) {
-
-        // }
         match buffer {
             AudioBufferRef::U8(_) => todo!(),
             AudioBufferRef::U16(_) => todo!(),
@@ -110,8 +119,7 @@ impl SymphoniaResampler {
             &self.input_buffer,
             &mut self.output_buffer,
             None,
-        )
-        .unwrap();
+        )?;
 
         self.output_audio_buffer.clear();
         self.output_audio_buffer
@@ -134,15 +142,12 @@ impl SymphoniaResampler {
             self.output_audio_buffer.capacity(),
             self.output_audio_buffer.frames()
         );
-        self.output_audio_buffer.as_audio_buffer_ref()
+        Ok(self.output_audio_buffer.as_audio_buffer_ref())
     }
 
     pub(super) fn resample_into_f32(&mut self, buffer: AudioBufferRef) -> &[f32] {
         let spec = buffer.spec();
 
-        // fn convert_to_input_buffer<T>(buffer: AudioBuffer<T>, &mut input_buffer: Vec<Vec<f32>>) {
-
-        // }
         match buffer {
             AudioBufferRef::U8(_) => todo!(),
             AudioBufferRef::U16(_) => todo!(),
@@ -168,21 +173,13 @@ impl SymphoniaResampler {
             AudioBufferRef::F64(_) => todo!(),
         };
 
-        let (input_frames, output_frames) = Resampler::process_into_buffer(
+        let (_, output_frames) = Resampler::process_into_buffer(
             &mut self.resampler,
             &self.input_buffer,
             &mut self.output_buffer,
             None,
         )
         .unwrap();
-        // info!(
-        //     "input_buffer: {} input: {} output: {} output_buffer: {} channels: {}",
-        //     buffer.frames(),
-        //     input_frames,
-        //     output_frames,
-        //     self.output_buffer[0].len(),
-        //     self.output_buffer.len()
-        // );
         self.interleaved.clear();
         for i in 0..output_frames {
             for ch in 0..spec.channels.count() {

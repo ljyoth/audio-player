@@ -7,4 +7,5 @@ edition = "2021"
 cpal = "0.15.3"
 rubato = "0.15.0"
 symphonia = { version = "0.5.4", features = ["all", "opt-simd"] }
+thiserror = { workspace = true }
 tracing = { workspace = true }

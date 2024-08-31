@@ -479,6 +479,7 @@ dependencies = [
  "cpal",
  "rubato",
  "symphonia",
+ "thiserror",
  "tracing",
 ]
 

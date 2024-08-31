@@ -157,10 +157,10 @@ impl AudioPlayerExecutor {
                         if let Ok(buffer) = track.next() {
                             if resampler.is_none() && buffer.spec().rate != *output.sample_rate() {
                                 resampler =
-                                    Some(SymphoniaResampler::new(*output.sample_rate(), &buffer));
+                                    Some(SymphoniaResampler::new(*output.sample_rate(), &buffer)?);
                             }
                             let buffer = match resampler {
-                                Some(ref mut resampler) => resampler.resample(buffer),
+                                Some(ref mut resampler) => resampler.resample(buffer)?,
                                 None => buffer,
                             };
 
