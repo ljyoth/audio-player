@@ -8,9 +8,7 @@ use symphonia::core::{
     conv::IntoSample,
     units::Duration,
 };
-use tracing::{debug, info, trace};
-
-use crate::{decoder::DecodedTrack, output};
+use tracing::{debug, info};
 
 pub(super) struct SymphoniaResampler {
     resampler: SincFixedIn<f32>,

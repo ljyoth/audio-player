@@ -1,19 +1,17 @@
 use std::{
     error::Error,
-    io::Seek,
-    ops::Deref,
     path::{Path, PathBuf},
     sync::{
         mpsc::{self, Sender},
-        Arc, Condvar, LockResult, Mutex, MutexGuard,
+        Arc, Condvar, Mutex,
     },
     thread::JoinHandle,
     time::Duration,
 };
 
 use crate::{
-    decoder::{self, DecodedTrack},
-    output::{AudioOutputWriter, AudioOutputter},
+    decoder::{self},
+    output::AudioOutputter,
     resampler::SymphoniaResampler,
 };
 

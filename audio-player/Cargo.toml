@@ -5,7 +5,6 @@ edition = "2021"
 
 [dependencies]
 cpal = "0.15.3"
-rtrb = "0.3.1"
 rubato = "0.15.0"
 symphonia = { version = "0.5.4", features = ["all", "opt-simd"] }
 tracing = { workspace = true }

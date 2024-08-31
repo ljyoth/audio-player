@@ -132,8 +132,4 @@ impl DecodedTrack {
             .calc_time(self.progress)
             .into()
     }
-
-    pub(super) fn reader(&self) -> &Box<dyn FormatReader> {
-        &self.reader
-    }
 }

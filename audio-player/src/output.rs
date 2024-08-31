@@ -1,18 +1,14 @@
 use std::{
     error::Error,
-    iter,
     sync::mpsc::{self, SyncSender, TryRecvError},
-    time::Duration,
 };
 
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    BuildStreamError, Device, OutputCallbackInfo, Sample, SampleRate, SizedSample, Stream,
-    StreamConfig, StreamError, SupportedStreamConfig,
+    BuildStreamError, Device, Sample, SizedSample, Stream, StreamError, SupportedStreamConfig,
 };
-use rtrb::Producer;
 use symphonia::core::{
-    audio::{AudioBuffer, AudioBufferRef, RawSample, SampleBuffer, Signal},
+    audio::{AudioBufferRef, SampleBuffer, Signal},
     conv::{ConvertibleSample, IntoSample},
 };
 use tracing::info;
@@ -60,7 +56,6 @@ pub(super) trait AudioOutputWriter {
 struct SymphoniaAudioOutputter<T: Sample> {
     stream: Stream,
     tx: SyncSender<T>,
-    producer: Producer<T>,
     sample_rate: u32,
 }
 
@@ -75,17 +70,9 @@ impl<T: SizedSample + ConvertibleSample + Send + 'static> SymphoniaAudioOutputte
 
         // May need to try rtrb/ringbuffer for performance
         let (tx, rx) = mpsc::sync_channel::<T>(config.sample_rate().0 as usize);
-        let (producer, mut consumer) = rtrb::RingBuffer::new(config.sample_rate().0 as usize);
         let stream = device.build_output_stream(
             &config.config(),
             move |data, _| {
-                // let chunk = consumer.read_chunk(data.len()).unwrap();
-                // let (slot1, slot2) = chunk.as_slices();
-                // data.iter_mut()
-                //     .zip(slot1.iter().chain(slot2.iter()))
-                //     .for_each(|(d, &s)| {
-                //         *d = s;
-                //     });
                 data.iter_mut().for_each(|d| {
                     *d = match rx.try_recv() {
                         Ok(data) => data,
@@ -101,7 +88,6 @@ impl<T: SizedSample + ConvertibleSample + Send + 'static> SymphoniaAudioOutputte
 
         Ok(Box::new(SymphoniaAudioOutputter {
             stream,
-            producer,
             tx,
             sample_rate: config.sample_rate().0,
         }))
@@ -190,16 +176,6 @@ impl<T: SizedSample + ConvertibleSample + Send + 'static> AudioOutputWriter
     }
 
     fn write_f32(&mut self, data: &[f32]) {
-        // let mut chunks = self.producer.write_chunk(data.len()).unwrap();
-        // let (slot1, slot2) = chunks.as_mut_slices();
-        // slot1
-        //     .iter_mut()
-        //     .chain(slot2.iter_mut())
-        //     .zip(data.iter())
-        //     .for_each(|(w, &d)| {
-        //         *w = d.into_sample();
-        //     });
-        // chunks.commit(data.len());
         data.iter().for_each(|&s| {
             self.tx.send(s.into_sample()).unwrap();
         })
