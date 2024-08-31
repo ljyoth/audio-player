@@ -54,12 +54,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     std::thread::sleep(Duration::from_millis(2000));
     player.controller().seek(Duration::from_secs(200)).unwrap();
-    // TODO: fix initial seek time
-    println!("seeked {:?}", player.controller().position());
-    std::thread::sleep(Duration::from_millis(100));
     println!("seeked {:?}", player.controller().position());
 
     player.wait_until_end()?;
+    // TODO: fix this not ending
 
     Ok(())
 }

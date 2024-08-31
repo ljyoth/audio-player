@@ -50,27 +50,33 @@ impl AudioPlayer {
 #[derive(Clone)]
 pub struct AudioPlayerController {
     state: Arc<Mutex<AudioPlayerControllerState>>,
-    cond_var: Arc<Condvar>,
+    playing_condvar: Arc<Condvar>,
+    seeking_condvar: Arc<Condvar>,
 }
 
 impl AudioPlayerController {
     fn new() -> Self {
         let state = Arc::new(Mutex::new(AudioPlayerControllerState::new()));
-        let cond_var = Arc::new(Condvar::new());
-        Self { state, cond_var }
+        let executor_condvar = Arc::new(Condvar::new());
+        let controller_condvar = Arc::new(Condvar::new());
+        Self {
+            state,
+            playing_condvar: executor_condvar,
+            seeking_condvar: controller_condvar,
+        }
     }
 
     pub fn play(&mut self) -> Result<(), Box<dyn Error>> {
         let mut state = self.state.lock().unwrap();
         (*state).playing = true;
-        self.cond_var.notify_all();
+        self.playing_condvar.notify_all();
         Ok(())
     }
 
     pub fn pause(&mut self) -> Result<(), Box<dyn Error>> {
         let mut state = self.state.lock().unwrap();
         (*state).playing = false;
-        self.cond_var.notify_all();
+        self.playing_condvar.notify_all();
         Ok(())
     }
 
@@ -82,6 +88,9 @@ impl AudioPlayerController {
     pub fn seek(&mut self, progress: Duration) -> Result<(), Box<dyn Error>> {
         let mut state = self.state.lock().unwrap();
         (*state).seek_position = Some(progress);
+        while (*state).seek_position.is_some() {
+            state = self.seeking_condvar.wait(state).unwrap();
+        }
         Ok(())
     }
 }
@@ -126,10 +135,11 @@ impl AudioPlayerExecutor {
                                 // TODO: skip packets
                                 track.seek(seek_position)?;
                                 (*state).seek_position = None;
+                                controller.seeking_condvar.notify_all();
                             }
                             (*state).position = Some(track.progress());
                             while !state.playing {
-                                state = controller.cond_var.wait(state).unwrap();
+                                state = controller.playing_condvar.wait(state).unwrap();
                             }
                         }
 

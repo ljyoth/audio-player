@@ -62,6 +62,7 @@ pub(super) fn decode<P: AsRef<Path>>(path: &P) -> Result<DecodedTrack, Box<dyn E
         reader: probed.format,
         decoder,
         progress,
+        next_packet: None,
     })
 }
 
@@ -69,15 +70,18 @@ pub(super) struct DecodedTrack {
     reader: Box<dyn FormatReader>,
     decoder: Box<dyn Decoder>,
     progress: TimeStamp,
+    // buffer next_packet call to accurately determine progress after seek call
+    next_packet: Option<Packet>,
 }
 
 impl DecodedTrack {
     pub(super) fn next(&mut self) -> Result<AudioBufferRef, Box<dyn Error>> {
-        let packet = loop {
-            let packet = self.reader.next_packet()?;
-            if packet.track_id() == self.reader.default_track().unwrap().id {
-                break packet;
+        let packet = match self.next_packet.take() {
+            Some(packet) => {
+                self.next_packet = None;
+                packet
             }
+            None => self.next_packet()?,
         };
         self.progress = packet.ts();
 
@@ -94,6 +98,17 @@ impl DecodedTrack {
         Ok(decoded)
     }
 
+    fn next_packet(&mut self) -> Result<Packet, Box<dyn Error>> {
+        let packet = loop {
+            let packet = self.reader.next_packet()?;
+            if packet.track_id() == self.reader.default_track().unwrap().id {
+                break packet;
+            }
+        };
+        self.progress = packet.ts();
+        Ok(packet)
+    }
+
     pub(super) fn seek(&mut self, progress: Duration) -> Result<(), Box<dyn Error>> {
         self.reader.seek(
             SeekMode::Accurate,
@@ -103,6 +118,7 @@ impl DecodedTrack {
             },
         )?;
         self.decoder.reset();
+        self.next_packet = Some(self.next_packet()?);
         Ok(())
     }
 
