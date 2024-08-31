@@ -9,10 +9,11 @@ use std::{
 use symphonia::core::{
     audio::AudioBufferRef,
     codecs::{Decoder, DecoderOptions},
-    formats::{FormatOptions, FormatReader, SeekMode, SeekTo},
+    formats::{FormatOptions, FormatReader, Packet, SeekMode, SeekTo},
     io::MediaSourceStream,
     meta::MetadataOptions,
     probe::Hint,
+    units::TimeStamp,
 };
 
 pub(super) fn decode<P: AsRef<Path>>(path: &P) -> Result<DecodedTrack, Box<dyn Error>> {
@@ -56,15 +57,18 @@ pub(super) fn decode<P: AsRef<Path>>(path: &P) -> Result<DecodedTrack, Box<dyn E
     let track = probed.format.default_track().unwrap();
     let decoder =
         symphonia::default::get_codecs().make(&track.codec_params, &DecoderOptions::default())?;
+    let progress = decoder.codec_params().start_ts;
     Ok(DecodedTrack {
         reader: probed.format,
         decoder,
+        progress,
     })
 }
 
 pub(super) struct DecodedTrack {
     reader: Box<dyn FormatReader>,
     decoder: Box<dyn Decoder>,
+    progress: TimeStamp,
 }
 
 impl DecodedTrack {
@@ -75,6 +79,8 @@ impl DecodedTrack {
                 break packet;
             }
         };
+        self.progress = packet.ts();
+
         while !self.reader.metadata().is_latest() {
             self.reader.metadata().pop();
             if let Some(metadata) = self.reader.metadata().current() {
@@ -100,11 +106,16 @@ impl DecodedTrack {
         Ok(())
     }
 
-    pub(super) fn reader(&self) -> &Box<dyn FormatReader> {
-        &self.reader
+    pub(super) fn progress(&self) -> Duration {
+        self.decoder
+            .codec_params()
+            .time_base
+            .unwrap()
+            .calc_time(self.progress)
+            .into()
     }
 
-    pub(super) fn decoder(&self) -> &Box<dyn Decoder> {
-        &self.decoder
+    pub(super) fn reader(&self) -> &Box<dyn FormatReader> {
+        &self.reader
     }
 }

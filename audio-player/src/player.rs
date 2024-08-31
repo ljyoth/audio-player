@@ -74,6 +74,11 @@ impl AudioPlayerController {
         Ok(())
     }
 
+    pub fn position(&self) -> Result<Duration, Box<dyn Error>> {
+        let state = self.state.lock().unwrap();
+        Ok(state.position.ok_or("unavailable")?)
+    }
+
     pub fn seek(&mut self, progress: Duration) -> Result<(), Box<dyn Error>> {
         let mut state = self.state.lock().unwrap();
         (*state).seek_position = Some(progress);
@@ -83,15 +88,18 @@ impl AudioPlayerController {
 
 struct AudioPlayerControllerState {
     playing: bool,
+    position: Option<Duration>,
     seek_position: Option<Duration>,
 }
 
 impl AudioPlayerControllerState {
     fn new() -> Self {
         let playing = false;
+        let position = Some(Duration::from_secs(0));
         let seek_position = None;
         Self {
             playing,
+            position,
             seek_position,
         }
     }
@@ -112,7 +120,6 @@ impl AudioPlayerExecutor {
                     let mut track = decoder::decode(&file)?;
                     let mut resampler = None;
                     loop {
-                        // TODO: use one mutex
                         {
                             let mut state = controller.state.lock().unwrap();
                             if let Some(seek_position) = state.seek_position {
@@ -120,6 +127,7 @@ impl AudioPlayerExecutor {
                                 track.seek(seek_position)?;
                                 (*state).seek_position = None;
                             }
+                            (*state).position = Some(track.progress());
                             while !state.playing {
                                 state = controller.cond_var.wait(state).unwrap();
                             }
@@ -143,7 +151,7 @@ impl AudioPlayerExecutor {
                 }
                 Ok(())
             };
-            run();
+            run().unwrap();
         });
 
         Self { tx, handle }

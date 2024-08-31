@@ -19,23 +19,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = CliArgs::parse();
 
     let mut player = AudioPlayer::new();
-    println!("start {:?}", std::time::Instant::now());
+    let controller = player.controller().clone();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_millis(1000));
+        println!("{:?}", controller.position());
+    });
     player.open(args.file)?;
     player.controller().play()?;
+    let start = std::time::Instant::now();
+    println!("start {:?} {:?}", start, player.controller().position());
 
     std::thread::sleep(Duration::from_millis(2000));
     let pause = std::time::Instant::now();
-    println!("pause {:?}", pause);
+    println!("pause {:?} {:?}", pause, player.controller().position());
     player.controller().pause().unwrap();
-    println!("paused {:?}", std::time::Instant::now() - pause);
+    println!(
+        "paused {:?} {:?}",
+        std::time::Instant::now() - pause,
+        player.controller().position()
+    );
     std::thread::sleep(Duration::from_millis(1000));
     let play = std::time::Instant::now();
-    println!("play {:?}", play - pause);
+    println!(
+        "play {:?} {:?}",
+        play - pause,
+        player.controller().position()
+    );
     player.controller().play().unwrap();
-    println!("played {:?}", std::time::Instant::now() - play);
+    println!(
+        "played {:?} {:?}",
+        std::time::Instant::now() - play,
+        player.controller().position()
+    );
 
     std::thread::sleep(Duration::from_millis(2000));
     player.controller().seek(Duration::from_secs(200)).unwrap();
+    // TODO: fix initial seek time
+    println!("seeked {:?}", player.controller().position());
+    std::thread::sleep(Duration::from_millis(100));
+    println!("seeked {:?}", player.controller().position());
 
     player.wait_until_end()?;
 
