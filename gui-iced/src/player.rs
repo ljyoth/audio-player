@@ -1,6 +1,5 @@
 use std::{error::Error, fs::File, io::BufReader, path::Path, time::Duration};
 
-use rodio::Source;
 use symphonia::core::{
     formats::FormatOptions,
     io::MediaSourceStream,
@@ -10,34 +9,22 @@ use symphonia::core::{
 
 pub(super) struct AudioPlayer {
     track: Option<TrackDetails>,
-
-    // TODO: remove rodio
-    stream: rodio::OutputStream,
-    sink: rodio::Sink,
+    player: audio_player::AudioPlayer,
 }
 
 impl AudioPlayer {
     pub(super) fn new() -> Result<Self, Box<dyn Error>> {
-        // TODO: remove rodio
-        let (stream, handle) = rodio::OutputStream::try_default()?;
-        let sink = rodio::Sink::try_new(&handle)?;
-        sink.pause();
+        let player = audio_player::AudioPlayer::new();
 
         Ok(Self {
             track: None,
-            stream,
-            sink,
+            player,
         })
     }
 
     // TODO: proper errors
     pub(super) fn open<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Box<dyn Error>> {
-        let file = File::open(path.as_ref())?;
-        let decoder = rodio::Decoder::new(BufReader::new(file.try_clone()?))?;
-        println!("rodio {:?}", decoder.total_duration());
-        // TODO: remove rodio
-        self.sink
-            .append(rodio::Decoder::new(BufReader::new(file.try_clone()?))?);
+        self.player.open(path.as_ref().to_path_buf())?;
 
         let mss = MediaSourceStream::new(Box::new(File::open(path.as_ref())?), Default::default());
         let mut hint = Hint::new();
@@ -61,28 +48,28 @@ impl AudioPlayer {
     }
 
     pub(super) fn play(&self) {
-        self.sink.play();
+        self.player.controller().play().unwrap();
     }
 
     pub(super) fn playing(&self) -> bool {
-        !self.sink.is_paused()
+        self.player.controller().playing().unwrap()
     }
 
     pub(super) fn pause(&self) {
-        self.sink.pause();
+        self.player.controller().pause().unwrap();
     }
 
-    pub(super) fn stop(&mut self) {
-        self.sink.stop();
-        self.track = None;
+    pub(super) fn stop(&self) {
+        // self.player.controller().stop().unwrap();
+        todo!()
     }
 
     pub(super) fn position(&self) -> Duration {
-        self.sink.get_pos()
+        self.player.controller().position().unwrap()
     }
 
     pub(super) fn seek(&self, position: Duration) -> Result<(), Box<dyn Error>> {
-        self.sink.try_seek(position)?;
+        self.player.controller().seek(position)?;
         Ok(())
     }
 }

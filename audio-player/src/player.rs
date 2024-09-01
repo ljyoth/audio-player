@@ -30,8 +30,8 @@ impl AudioPlayer {
         }
     }
 
-    pub fn controller(&mut self) -> &mut AudioPlayerController {
-        &mut self.controller
+    pub fn controller(&self) -> &AudioPlayerController {
+        &self.controller
     }
 
     // TODO: returnable DecodedTrack that is queueable
@@ -65,18 +65,23 @@ impl AudioPlayerController {
         }
     }
 
-    pub fn play(&mut self) -> Result<(), Box<dyn Error>> {
+    pub fn play(&self) -> Result<(), Box<dyn Error>> {
         let mut state = self.state.lock().unwrap();
         (*state).playing = true;
         self.playing_condvar.notify_all();
         Ok(())
     }
 
-    pub fn pause(&mut self) -> Result<(), Box<dyn Error>> {
+    pub fn pause(&self) -> Result<(), Box<dyn Error>> {
         let mut state = self.state.lock().unwrap();
         (*state).playing = false;
         self.playing_condvar.notify_all();
         Ok(())
+    }
+
+    pub fn playing(&self) -> Result<bool, Box<dyn Error>> {
+        let state = self.state.lock().unwrap();
+        Ok((*state).playing)
     }
 
     pub fn duration(&self) -> Result<Duration, Box<dyn Error>> {
@@ -89,7 +94,7 @@ impl AudioPlayerController {
         Ok(state.position.ok_or("unavailable")?)
     }
 
-    pub fn seek(&mut self, progress: Duration) -> Result<(), Box<dyn Error>> {
+    pub fn seek(&self, progress: Duration) -> Result<(), Box<dyn Error>> {
         let mut state = self.state.lock().unwrap();
         (*state).seek_position = Some(progress);
         while (*state).seek_position.is_some() {
