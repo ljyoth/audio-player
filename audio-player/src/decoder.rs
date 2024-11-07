@@ -1,4 +1,4 @@
-use std::{error::Error, fs::File, path::Path, time::Duration};
+use std::{fs::File, path::Path, time::Duration};
 
 use symphonia::core::{
     audio::AudioBufferRef,

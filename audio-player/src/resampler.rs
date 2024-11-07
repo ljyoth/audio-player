@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 
-use cpal::FromSample;
 use rubato::{
     ResampleError, Resampler, ResamplerConstructionError, SincFixedIn, SincInterpolationParameters,
     SincInterpolationType, WindowFunction,
@@ -90,7 +89,6 @@ impl SymphoniaResampler {
         &mut self,
         buffer: AudioBufferRef,
     ) -> Result<AudioBufferRef, ResamplerError> {
-        let spec = buffer.spec();
         match buffer {
             AudioBufferRef::U8(ref buffer) => fill_f64_buffer(buffer, &mut self.input_buffer),
             AudioBufferRef::U16(ref buffer) => fill_f64_buffer(buffer, &mut self.input_buffer),
@@ -133,52 +131,6 @@ impl SymphoniaResampler {
             self.output_audio_buffer.frames()
         );
         Ok(self.output_audio_buffer.as_audio_buffer_ref())
-    }
-
-    pub(super) fn resample_into_f64(
-        &mut self,
-        buffer: AudioBufferRef,
-    ) -> Result<&[f64], ResamplerError> {
-        let spec = buffer.spec();
-
-        match buffer {
-            AudioBufferRef::U8(_) => todo!(),
-            AudioBufferRef::U16(_) => todo!(),
-            AudioBufferRef::U24(_) => todo!(),
-            AudioBufferRef::U32(_) => todo!(),
-            AudioBufferRef::S8(_) => todo!(),
-            AudioBufferRef::S16(_) => todo!(),
-            AudioBufferRef::S24(_) => todo!(),
-            AudioBufferRef::S32(ref buffer) => (0..spec.channels.count()).for_each(|c| {
-                self.input_buffer[c].clear();
-                buffer
-                    .chan(c)
-                    .iter()
-                    .for_each(|&s| self.input_buffer[c].push(s.into_sample()));
-            }),
-            AudioBufferRef::F32(ref buffer) => (0..spec.channels.count()).for_each(|c| {
-                self.input_buffer[c].clear();
-                buffer
-                    .chan(c)
-                    .iter()
-                    .for_each(|&s| self.input_buffer[c].push(s.into_sample()));
-            }),
-            AudioBufferRef::F64(_) => todo!(),
-        };
-
-        let (_, output_frames) = Resampler::process_into_buffer(
-            &mut self.resampler,
-            &self.input_buffer,
-            &mut self.output_buffer,
-            None,
-        )?;
-        self.interleaved.clear();
-        for i in 0..output_frames {
-            for ch in 0..spec.channels.count() {
-                self.interleaved.push(self.output_buffer[ch][i]);
-            }
-        }
-        Ok(self.interleaved.as_slice())
     }
 }
 

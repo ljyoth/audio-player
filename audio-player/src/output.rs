@@ -1,16 +1,11 @@
-use std::{
-    error::{self, Error},
-    sync::mpsc::{self, SyncSender, TryRecvError},
-};
+use std::sync::mpsc::{self, SyncSender, TryRecvError};
 
 use cpal::{
-    traits::{DeviceTrait, HostTrait, StreamTrait},
-    BuildStreamError, Device, Sample, SizedSample, Stream, StreamError, SupportedStreamConfig,
+    traits::{DeviceTrait, HostTrait, StreamTrait}, Device, Sample, SizedSample, Stream, StreamError, SupportedStreamConfig,
 };
 use symphonia::core::{
     audio::{AudioBufferRef, SampleBuffer},
-    conv::{ConvertibleSample, IntoSample},
-    sample,
+    conv::ConvertibleSample,
 };
 use tracing::info;
 
@@ -72,7 +67,6 @@ impl AudioOutputter {
 pub(super) trait AudioOutputWriter {
     // TODO: create shared AudioBufferRef
     fn write(&mut self, data: AudioBufferRef);
-    fn write_f32(&mut self, data: &[f32]);
     fn sample_rate(&self) -> &u32;
 }
 
@@ -131,12 +125,6 @@ impl<T: SizedSample + ConvertibleSample + Send + 'static> AudioOutputWriter
         sample_buffer.copy_interleaved_ref(buffer);
         sample_buffer.samples().iter().for_each(|&s| {
             self.tx.send(s).unwrap();
-        })
-    }
-
-    fn write_f32(&mut self, data: &[f32]) {
-        data.iter().for_each(|&s| {
-            self.tx.send(s.into_sample()).unwrap();
         })
     }
 

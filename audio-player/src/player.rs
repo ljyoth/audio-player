@@ -12,7 +12,7 @@ use std::{
 
 use crate::{
     decoder::{self, DecodedTrack, DecoderError},
-    output::{AudioOutputter, AudioOutputterError},
+    output::AudioOutputter,
     resampler::SymphoniaResampler,
     track::Track,
 };
