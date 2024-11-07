@@ -3,7 +3,7 @@ use clap::{ArgAction, Parser};
 use color_eyre::eyre::{eyre, Result};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::{
-    io::{stdout, Write},
+    io::{stdin, stdout, Write},
     path::PathBuf,
     time::Duration,
 };
@@ -40,7 +40,7 @@ fn main() -> Result<()> {
             ProgressDrawTarget::stderr_with_hz(FPS as u8),
         );
         bar.set_style(ProgressStyle::with_template(&format!(
-            "[{{msg:>12}}] {{wide_bar}} [{:02}:{:02}:{:.3}]",
+            "[{{msg:>12}}] {{wide_bar}} [{:02}:{:02}:{:06.3}]",
             duration / 3600_000,
             (duration % 3600_000) / 60_000,
             (duration % 60_000) as f64 / 1000.0
@@ -50,7 +50,7 @@ fn main() -> Result<()> {
             let position = controller.position().map(|d| d.as_millis()).unwrap_or(0);
             bar.set_position(position as u64);
             bar.set_message(format!(
-                "{:02}:{:02}:{:.3}",
+                "{:02}:{:02}:{:06.3}",
                 position / 3600_000,
                 (position % 3600_000) / 60_000,
                 (position % 60_000) as f64 / 1000.0
@@ -62,7 +62,7 @@ fn main() -> Result<()> {
             let position = controller.position().map(|d| d.as_millis()).unwrap_or(0);
             print!("\x1b[2K\r");
             print!(
-                "[{:02}:{:02}:{:.3} / {:02}:{:02}:{:.3}]",
+                "[{:02}:{:02}:{:06.3} / {:02}:{:02}:{:06.3}]",
                 position / 3600_000,
                 (position % 3600_000) / 60_000,
                 (position % 60_000) as f64 / 1000.0,

@@ -3,7 +3,7 @@ resolver = "2"
 members = [
     "audio-player",
     "cli",
-    "gui-iced",
+    "gui-iced", "tui",
 ]
 
 [workspace.dependencies]

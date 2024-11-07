@@ -1,5 +1,5 @@
 [package]
-name = "cli"
+name = "tui"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,4 +7,4 @@ edition = "2021"
 audio-player = { path = "../audio-player" }
 clap = { workspace = true }
 color-eyre = { workspace = true }
-indicatif = { version = "0.17.8" }
+ratatui = "0.28.1"
