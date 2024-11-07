@@ -1,11 +1,7 @@
 [package]
-name = "gui-iced"
+name = "ap-iced"
 version = "0.1.0"
 edition = "2021"
-
-[[bin]]
-name = "mp-iced"
-path = "src/main.rs"
 
 [dependencies]
 audio-player = { path = "../audio-player" }

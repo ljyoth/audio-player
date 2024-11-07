@@ -15,7 +15,7 @@ use rfd::FileDialog;
 
 use crate::player::AudioPlayer;
 
-pub(super) struct MusicPlayerApplication {
+pub(super) struct AudioPlayerApplication {
     player: AudioPlayer,
     seeking: bool,
     playback_position: f64,
@@ -33,11 +33,11 @@ pub(super) enum Message {
     Resize(Size),
 }
 
-impl Application for MusicPlayerApplication {
+impl Application for AudioPlayerApplication {
     type Message = Message;
     type Executor = executor::Default;
     type Theme = theme::Theme;
-    type Flags = MusicPlayerFlags;
+    type Flags = AudioPlayerFlags;
 
     fn new(flags: Self::Flags) -> (Self, iced::Command<Message>) {
         let mut player = AudioPlayer::new();
@@ -58,12 +58,12 @@ impl Application for MusicPlayerApplication {
     fn title(&self) -> String {
         if let Some(track) = self.player.current() {
             if let Some(title) = track.details().title() {
-                return format!("Music Player - {}", title);
+                return format!("Audio Player - {}", title);
             } else {
-                return format!("Music Player - {}", track.file_path().to_string_lossy());
+                return format!("Audio Player - {}", track.file_path().to_string_lossy());
             }
         }
-        "Music Player".into()
+        "Audio Player".into()
     }
 
     fn update(&mut self, message: Message) -> iced::Command<Message> {
@@ -248,7 +248,7 @@ impl Application for MusicPlayerApplication {
 }
 
 #[derive(Debug, Default)]
-pub(super) struct MusicPlayerFlags {
+pub(super) struct AudioPlayerFlags {
     pub(super) file_path: Option<PathBuf>,
 }
 

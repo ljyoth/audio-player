@@ -1,6 +1,6 @@
 mod app;
 
-use app::MusicPlayerApplication;
+use app::AudioPlayerApplication;
 use audio_player::AudioPlayer;
 use clap::{ArgAction, Parser};
 use color_eyre::eyre::{eyre, Ok, Result};
@@ -27,7 +27,7 @@ fn main() -> Result<()> {
     color_eyre::install()?;
     let args = CliArgs::parse();
 
-    let mut app = MusicPlayerApplication::new();
+    let mut app = AudioPlayerApplication::new();
     app.open(args.file)?;
 
     let backend = CrosstermBackend::new(stdout());

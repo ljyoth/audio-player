@@ -3,7 +3,7 @@
 mod app;
 mod player;
 
-use app::{MusicPlayerApplication, MusicPlayerFlags};
+use app::{AudioPlayerApplication, AudioPlayerFlags};
 use clap::Parser;
 use color_eyre::eyre::Result;
 use iced::{advanced::graphics::core::window, Application, Settings};
@@ -18,8 +18,8 @@ struct CliArgs {
 fn main() -> Result<()> {
     let args = CliArgs::parse();
 
-    MusicPlayerApplication::run(Settings {
-        flags: MusicPlayerFlags {
+    AudioPlayerApplication::run(Settings {
+        flags: AudioPlayerFlags {
             file_path: args.file,
         },
         window: window::Settings {

@@ -17,12 +17,12 @@ use ratatui::{
     Terminal,
 };
 
-pub(super) struct MusicPlayerApplication {
+pub(super) struct AudioPlayerApplication {
     player: AudioPlayer,
     track: Option<Track>,
 }
 
-impl MusicPlayerApplication {
+impl AudioPlayerApplication {
     pub(super) fn new() -> Self {
         let player = AudioPlayer::new();
         Self {
