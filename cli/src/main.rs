@@ -1,5 +1,6 @@
 use audio_player::AudioPlayer;
 use clap::{ArgAction, Parser};
+use color_eyre::eyre::{eyre, Result};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::{
     io::{stdout, Write},
@@ -14,7 +15,8 @@ struct CliArgs {
     progress_bar: bool,
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<()> {
+    color_eyre::install()?;
     let args = CliArgs::parse();
 
     let mut player = AudioPlayer::new();
@@ -22,11 +24,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let track = player.open(&args.file)?;
     let details = track.details().clone();
     player.queue(track)?;
-    let track = player.open(&args.file)?;
-    player.queue(track)?;
 
     const FPS: u64 = 15;
-    let duration = details.duration().ok_or("no duration")?.as_millis();
+    let duration = details.duration().ok_or(eyre!("no duration"))?.as_millis();
     if args.progress_bar {
         let bar = ProgressBar::with_draw_target(
             Some(duration as u64),
@@ -67,38 +67,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    player.controller().play()?;
-    let start = std::time::Instant::now();
-    println!("start {:?} {:?}", start, player.controller().position());
+    player.controller().play();
 
-    std::thread::sleep(Duration::from_millis(2000));
-    let pause = std::time::Instant::now();
-    println!("pause {:?} {:?}", pause, player.controller().position());
-    player.controller().pause().unwrap();
-    println!(
-        "paused {:?} {:?}",
-        std::time::Instant::now() - pause,
-        player.controller().position()
-    );
-    std::thread::sleep(Duration::from_millis(1000));
-    let play = std::time::Instant::now();
-    println!(
-        "play {:?} {:?}",
-        play - pause,
-        player.controller().position()
-    );
-    player.controller().play().unwrap();
-    println!(
-        "played {:?} {:?}",
-        std::time::Instant::now() - play,
-        player.controller().position()
-    );
+    // let start = std::time::Instant::now();
+    // println!("start {:?} {:?}", start, player.controller().position());
 
-    std::thread::sleep(Duration::from_millis(2000));
-    player.controller().seek(Duration::from_secs(255))?;
-    println!("seeked {:?}", player.controller().position());
+    // std::thread::sleep(Duration::from_millis(2000));
+    // let pause = std::time::Instant::now();
+    // println!("pause {:?} {:?}", pause, player.controller().position());
+    // player.controller().pause();
+    // println!(
+    //     "paused {:?} {:?}",
+    //     std::time::Instant::now() - pause,
+    //     player.controller().position()
+    // );
+    // std::thread::sleep(Duration::from_millis(1000));
+    // let play = std::time::Instant::now();
+    // println!(
+    //     "play {:?} {:?}",
+    //     play - pause,
+    //     player.controller().position()
+    // );
+    // player.controller().play();
+    // println!(
+    //     "played {:?} {:?}",
+    //     std::time::Instant::now() - play,
+    //     player.controller().position()
+    // );
 
-    player.wait_until_end()?;
+    // std::thread::sleep(Duration::from_millis(2000));
+    // player.controller().seek(Duration::from_secs(255));
+    // println!("seeked {:?}", player.controller().position());
+
+    player.wait_until_end();
 
     Ok(())
 }

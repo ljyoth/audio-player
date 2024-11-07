@@ -40,8 +40,9 @@ impl Application for MusicPlayerApplication {
     type Flags = MusicPlayerFlags;
 
     fn new(flags: Self::Flags) -> (Self, iced::Command<Message>) {
-        let mut player = AudioPlayer::new().unwrap();
-        player.open(flags.file_path).unwrap();
+        let mut player = AudioPlayer::new();
+        // TODO handle error
+        player.open(flags.file_path).expect("failed to open");
         (
             Self {
                 player,
@@ -74,14 +75,14 @@ impl Application for MusicPlayerApplication {
             }
             Message::ConfirmSeek => {
                 self.player
-                    .seek(Duration::from_micros(self.playback_position as u64))
-                    .unwrap();
+                    .seek(Duration::from_micros(self.playback_position as u64));
                 self.seeking = false;
             }
             Message::OpenFilePicker => {
                 if let Some(file) = FileDialog::new().pick_file() {
                     self.player.stop();
-                    self.player.open(file).unwrap();
+                    // TODO handle error
+                    self.player.open(file).expect("failed to open");
                 }
             }
             Message::Stop => self.player.stop(),

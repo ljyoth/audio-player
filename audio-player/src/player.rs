@@ -1,9 +1,9 @@
 use std::{
     error::Error,
-    path::{Path, PathBuf},
+    path::Path,
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc::{self, Sender},
+        mpsc::{self, SendError, Sender},
         Arc, Condvar, Mutex,
     },
     thread::JoinHandle,
@@ -11,11 +11,19 @@ use std::{
 };
 
 use crate::{
-    decoder::{self, DecodedTrack},
-    output::AudioOutputter,
+    decoder::{self, DecodedTrack, DecoderError},
+    output::{AudioOutputter, AudioOutputterError},
     resampler::SymphoniaResampler,
-    track::{self, Track},
+    track::Track,
 };
+
+#[derive(Debug, thiserror::Error)]
+pub enum AudioPlayerError {
+    #[error("DecoderError {0}")]
+    Decoder(#[from] DecoderError),
+    #[error("ExecutorError {0}")]
+    Executor(#[from] AudioPlayerExecutorError),
+}
 
 pub struct AudioPlayer {
     controller: AudioPlayerController,
@@ -36,27 +44,30 @@ impl AudioPlayer {
         &self.controller
     }
 
-    pub fn open<F: AsRef<Path>>(&mut self, file: F) -> Result<Track, Box<dyn Error>> {
+    pub fn open<F: AsRef<Path>>(&mut self, file: F) -> Result<Track, AudioPlayerError> {
         let track = decoder::decode(&file)?;
         Ok(track)
     }
 
     // Place track on queue
-    pub fn queue(&self, track: Track) -> Result<(), Box<dyn Error>> {
+    pub fn queue(&self, track: Track) -> Result<(), AudioPlayerError> {
         self.executor.queue(track.decoded)?;
         Ok(())
     }
 
     // drain all tracks in the queue
-    pub fn drain(&mut self) -> Result<(), Box<dyn Error>> {
+    pub fn drain(&mut self) {
         self.executor = AudioPlayerExecutor::new(self.controller.clone());
-        Ok(())
     }
 
-    pub fn wait_until_end(self) -> Result<(), Box<dyn Error>> {
-        self.executor.wait_until_end()?;
-        Ok(())
+    pub fn wait_until_end(self) {
+        self.executor.wait_until_end();
     }
+}
+
+#[derive(Debug)]
+pub enum AudioPlayerControllerError {
+    NotPlaying,
 }
 
 #[derive(Clone)]
@@ -78,37 +89,34 @@ impl AudioPlayerController {
         }
     }
 
-    pub fn play(&self) -> Result<(), Box<dyn Error>> {
+    pub fn play(&self) {
         let mut state = self.state.lock().unwrap();
         (*state).playing = true;
         self.playing_condvar.notify_all();
-        Ok(())
     }
 
-    pub fn pause(&self) -> Result<(), Box<dyn Error>> {
+    pub fn pause(&self) {
         let mut state = self.state.lock().unwrap();
         (*state).playing = false;
         self.playing_condvar.notify_all();
-        Ok(())
     }
 
-    pub fn playing(&self) -> Result<bool, Box<dyn Error>> {
+    pub fn playing(&self) -> bool {
         let state = self.state.lock().unwrap();
-        Ok((*state).playing)
+        (*state).playing
     }
 
-    pub fn position(&self) -> Result<Duration, Box<dyn Error>> {
+    pub fn position(&self) -> Result<Duration, AudioPlayerControllerError> {
         let state = self.state.lock().unwrap();
-        Ok(state.position.ok_or("unavailable")?)
+        state.position.ok_or(AudioPlayerControllerError::NotPlaying)
     }
 
-    pub fn seek(&self, progress: Duration) -> Result<(), Box<dyn Error>> {
+    pub fn seek(&self, progress: Duration) {
         let mut state = self.state.lock().unwrap();
         (*state).seek_position = Some(progress);
         while (*state).seek_position.is_some() {
             state = self.seeking_condvar.wait(state).unwrap();
         }
-        Ok(())
     }
 }
 
@@ -129,6 +137,12 @@ impl AudioPlayerControllerState {
             seek_position,
         }
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+enum AudioPlayerExecutorError {
+    #[error("SendError {0}")]
+    Send(#[from] SendError<DecodedTrack>),
 }
 
 struct AudioPlayerExecutor {
@@ -158,7 +172,7 @@ impl AudioPlayerExecutor {
                                 (*state).seek_position = None;
                                 controller.seeking_condvar.notify_all();
                             }
-                            (*state).position = Some(track.progress());
+                            (*state).position = Some(track.progress()?);
                             while !state.playing {
                                 state = controller.playing_condvar.wait(state).unwrap();
                             }
@@ -192,15 +206,16 @@ impl AudioPlayerExecutor {
         }
     }
 
-    fn queue(&self, track: DecodedTrack) -> Result<(), Box<dyn Error>> {
+    fn queue(&self, track: DecodedTrack) -> Result<(), AudioPlayerExecutorError> {
         self.tx.as_ref().unwrap().send(track)?;
         Ok(())
     }
 
-    fn wait_until_end(mut self) -> Result<(), Box<dyn Error>> {
+    fn wait_until_end(mut self) {
         self.tx = None;
-        self.handle.take().unwrap().join().unwrap();
-        Ok(())
+        if let Some(handle) = self.handle.take() {
+            handle.join().unwrap();
+        }
     }
 }
 

@@ -20,6 +20,7 @@ impl Track {
 
 #[derive(Debug, Clone)]
 pub struct TrackDetails {
+    // TODO: custom Image type
     cover: Option<Visual>,
     title: Option<String>,
     duration: Option<Duration>,

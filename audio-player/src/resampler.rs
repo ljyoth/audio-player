@@ -50,8 +50,7 @@ impl SymphoniaResampler {
         //     buffer.frames(),
         //     2,
         //     spec.channels.count(),
-        // )
-        // .unwrap();
+        // )?;
 
         let input_buffer: Vec<Vec<f32>> = (0..spec.channels.count())
             .map(|_| Vec::with_capacity(buffer.frames()))
@@ -90,13 +89,55 @@ impl SymphoniaResampler {
         let spec = buffer.spec();
 
         match buffer {
-            AudioBufferRef::U8(_) => todo!(),
-            AudioBufferRef::U16(_) => todo!(),
-            AudioBufferRef::U24(_) => todo!(),
-            AudioBufferRef::U32(_) => todo!(),
-            AudioBufferRef::S8(_) => todo!(),
-            AudioBufferRef::S16(_) => todo!(),
-            AudioBufferRef::S24(_) => todo!(),
+            AudioBufferRef::U8(ref buffer) => (0..spec.channels.count()).for_each(|c| {
+                self.input_buffer[c].clear();
+                buffer
+                    .chan(c)
+                    .iter()
+                    .for_each(|&s| self.input_buffer[c].push(s.into_sample()));
+            }),
+            AudioBufferRef::U16(ref buffer) => (0..spec.channels.count()).for_each(|c| {
+                self.input_buffer[c].clear();
+                buffer
+                    .chan(c)
+                    .iter()
+                    .for_each(|&s| self.input_buffer[c].push(s.into_sample()));
+            }),
+            AudioBufferRef::U24(ref buffer) => (0..spec.channels.count()).for_each(|c| {
+                self.input_buffer[c].clear();
+                buffer
+                    .chan(c)
+                    .iter()
+                    .for_each(|&s| self.input_buffer[c].push(s.into_sample()));
+            }),
+            AudioBufferRef::U32(ref buffer) => (0..spec.channels.count()).for_each(|c| {
+                self.input_buffer[c].clear();
+                buffer
+                    .chan(c)
+                    .iter()
+                    .for_each(|&s| self.input_buffer[c].push(s.into_sample()));
+            }),
+            AudioBufferRef::S8(ref buffer) => (0..spec.channels.count()).for_each(|c| {
+                self.input_buffer[c].clear();
+                buffer
+                    .chan(c)
+                    .iter()
+                    .for_each(|&s| self.input_buffer[c].push(s.into_sample()));
+            }),
+            AudioBufferRef::S16(ref buffer) => (0..spec.channels.count()).for_each(|c| {
+                self.input_buffer[c].clear();
+                buffer
+                    .chan(c)
+                    .iter()
+                    .for_each(|&s| self.input_buffer[c].push(s.into_sample()));
+            }),
+            AudioBufferRef::S24(ref buffer) => (0..spec.channels.count()).for_each(|c| {
+                self.input_buffer[c].clear();
+                buffer
+                    .chan(c)
+                    .iter()
+                    .for_each(|&s| self.input_buffer[c].push(s.into_sample()));
+            }),
             AudioBufferRef::S32(ref buffer) => (0..spec.channels.count()).for_each(|c| {
                 self.input_buffer[c].clear();
                 buffer
@@ -111,7 +152,7 @@ impl SymphoniaResampler {
                     .iter()
                     .for_each(|&s| self.input_buffer[c].push(s.into_sample()));
             }),
-            AudioBufferRef::F64(_) => todo!(),
+            AudioBufferRef::F64(ref buffer) => todo!(),
         };
 
         let (input_frames, output_frames) = Resampler::process_into_buffer(
@@ -145,7 +186,10 @@ impl SymphoniaResampler {
         Ok(self.output_audio_buffer.as_audio_buffer_ref())
     }
 
-    pub(super) fn resample_into_f32(&mut self, buffer: AudioBufferRef) -> &[f32] {
+    pub(super) fn resample_into_f32(
+        &mut self,
+        buffer: AudioBufferRef,
+    ) -> Result<&[f32], ResamplerError> {
         let spec = buffer.spec();
 
         match buffer {
@@ -178,14 +222,13 @@ impl SymphoniaResampler {
             &self.input_buffer,
             &mut self.output_buffer,
             None,
-        )
-        .unwrap();
+        )?;
         self.interleaved.clear();
         for i in 0..output_frames {
             for ch in 0..spec.channels.count() {
                 self.interleaved.push(self.output_buffer[ch][i]);
             }
         }
-        self.interleaved.as_slice()
+        Ok(self.interleaved.as_slice())
     }
 }

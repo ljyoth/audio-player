@@ -1,6 +1,6 @@
 use std::{error::Error, fs::File, io::BufReader, path::Path, time::Duration};
 
-use audio_player::TrackDetails;
+use audio_player::{AudioPlayerError, TrackDetails};
 
 pub(super) struct AudioPlayer {
     track: Option<TrackDetails>,
@@ -8,17 +8,16 @@ pub(super) struct AudioPlayer {
 }
 
 impl AudioPlayer {
-    pub(super) fn new() -> Result<Self, Box<dyn Error>> {
+    pub(super) fn new() -> Self {
         let player = audio_player::AudioPlayer::new();
 
-        Ok(Self {
+        Self {
             track: None,
             player,
-        })
+        }
     }
 
-    // TODO: proper errors
-    pub(super) fn open<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Box<dyn Error>> {
+    pub(super) fn open<P: AsRef<Path>>(&mut self, path: P) -> Result<(), AudioPlayerError> {
         let track = self.player.open(path.as_ref().to_path_buf())?;
         self.track = Some(track.details().clone());
         self.player.queue(track)?;
@@ -32,27 +31,29 @@ impl AudioPlayer {
     }
 
     pub(super) fn play(&self) {
-        self.player.controller().play().unwrap();
+        self.player.controller().play();
     }
 
     pub(super) fn playing(&self) -> bool {
-        self.player.controller().playing().unwrap()
+        self.player.controller().playing()
     }
 
     pub(super) fn pause(&self) {
-        self.player.controller().pause().unwrap();
+        self.player.controller().pause();
     }
 
     pub(super) fn stop(&mut self) {
-        self.player.drain().unwrap()
+        self.player.drain()
     }
 
     pub(super) fn position(&self) -> Duration {
-        self.player.controller().position().unwrap()
+        self.player
+            .controller()
+            .position()
+            .unwrap_or(Duration::from_secs(0))
     }
 
-    pub(super) fn seek(&self, position: Duration) -> Result<(), Box<dyn Error>> {
-        self.player.controller().seek(position)?;
-        Ok(())
+    pub(super) fn seek(&self, position: Duration) {
+        self.player.controller().seek(position);
     }
 }

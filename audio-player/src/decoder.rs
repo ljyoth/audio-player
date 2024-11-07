@@ -13,7 +13,19 @@ use tracing::info;
 
 use crate::{Track, TrackDetails};
 
-pub(super) fn decode<P: AsRef<Path>>(path: &P) -> Result<Track, Box<dyn Error>> {
+#[derive(Debug, thiserror::Error)]
+pub(super) enum DecoderError {
+    #[error("TrackUnavailable")]
+    TrackUnavailable,
+    #[error("IO Error {0}")]
+    IO(#[from] std::io::Error),
+    #[error("SymphoniaError {0}")]
+    Symphonia(#[from] symphonia::core::errors::Error),
+    #[error("Failed to Calculate Progress")]
+    ProgressUnavailable,
+}
+
+pub(super) fn decode<P: AsRef<Path>>(path: &P) -> Result<Track, DecoderError> {
     let mss = MediaSourceStream::new(Box::new(File::open(path.as_ref())?), Default::default());
     let mut hint = Hint::new();
     if let Some(ext) = path.as_ref().extension() {
@@ -28,7 +40,10 @@ pub(super) fn decode<P: AsRef<Path>>(path: &P) -> Result<Track, Box<dyn Error>> 
 
     let details = TrackDetails::new(&mut probed);
 
-    let track = probed.format.default_track().unwrap();
+    let track = probed
+        .format
+        .default_track()
+        .ok_or(DecoderError::TrackUnavailable)?;
     let decoder =
         symphonia::default::get_codecs().make(&track.codec_params, &DecoderOptions::default())?;
     let progress = decoder.codec_params().start_ts;
@@ -52,7 +67,7 @@ pub(super) struct DecodedTrack {
 }
 
 impl DecodedTrack {
-    pub(super) fn next(&mut self) -> Result<AudioBufferRef, Box<dyn Error>> {
+    pub(super) fn next(&mut self) -> Result<AudioBufferRef, DecoderError> {
         let packet = match self.next_packet.take() {
             Some(packet) => {
                 self.next_packet = None;
@@ -75,10 +90,16 @@ impl DecodedTrack {
         Ok(decoded)
     }
 
-    fn next_packet(&mut self) -> Result<Packet, Box<dyn Error>> {
+    fn next_packet(&mut self) -> Result<Packet, DecoderError> {
         let packet = loop {
             let packet = self.reader.next_packet()?;
-            if packet.track_id() == self.reader.default_track().unwrap().id {
+            if packet.track_id()
+                == self
+                    .reader
+                    .default_track()
+                    .ok_or(DecoderError::TrackUnavailable)?
+                    .id
+            {
                 break packet;
             }
         };
@@ -86,7 +107,7 @@ impl DecodedTrack {
         Ok(packet)
     }
 
-    pub(super) fn seek(&mut self, progress: Duration) -> Result<(), Box<dyn Error>> {
+    pub(super) fn seek(&mut self, progress: Duration) -> Result<(), DecoderError> {
         self.reader.seek(
             SeekMode::Accurate,
             SeekTo::Time {
@@ -99,12 +120,13 @@ impl DecodedTrack {
         Ok(())
     }
 
-    pub(super) fn progress(&self) -> Duration {
-        self.decoder
+    pub(super) fn progress(&self) -> Result<Duration, DecoderError> {
+        Ok(self
+            .decoder
             .codec_params()
             .time_base
-            .unwrap()
+            .ok_or(DecoderError::ProgressUnavailable)?
             .calc_time(self.progress)
-            .into()
+            .into())
     }
 }
