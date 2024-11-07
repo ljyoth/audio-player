@@ -10,9 +10,10 @@ use std::{
 };
 
 use crate::{
-    decoder::{self},
+    decoder::{self, DecodedTrack},
     output::AudioOutputter,
     resampler::SymphoniaResampler,
+    track::{self, Track},
 };
 
 pub struct AudioPlayer {
@@ -34,10 +35,20 @@ impl AudioPlayer {
         &self.controller
     }
 
-    // TODO: returnable DecodedTrack that is queueable
-    pub fn open<F: AsRef<Path>>(&mut self, file: F) -> Result<(), Box<dyn Error>> {
-        self.executor.queue(file)?;
+    pub fn open<F: AsRef<Path>>(&mut self, file: F) -> Result<Track, Box<dyn Error>> {
+        let track = decoder::decode(&file)?;
+        Ok(track)
+    }
+
+    // Place track on queue
+    pub fn queue(&self, track: Track) -> Result<(), Box<dyn Error>> {
+        self.executor.queue(track.decoded)?;
         Ok(())
+    }
+
+    // drain all tracks in the queue
+    pub fn drain(&self) -> Result<(), Box<dyn Error>> {
+        todo!();
     }
 
     pub fn wait_until_end(self) -> Result<(), Box<dyn Error>> {
@@ -84,11 +95,6 @@ impl AudioPlayerController {
         Ok((*state).playing)
     }
 
-    pub fn duration(&self) -> Result<Duration, Box<dyn Error>> {
-        let state = self.state.lock().unwrap();
-        Ok(state.duration.ok_or("unavailable")?)
-    }
-
     pub fn position(&self) -> Result<Duration, Box<dyn Error>> {
         let state = self.state.lock().unwrap();
         Ok(state.position.ok_or("unavailable")?)
@@ -106,7 +112,6 @@ impl AudioPlayerController {
 
 struct AudioPlayerControllerState {
     playing: bool,
-    duration: Option<Duration>,
     position: Option<Duration>,
     seek_position: Option<Duration>,
 }
@@ -114,12 +119,10 @@ struct AudioPlayerControllerState {
 impl AudioPlayerControllerState {
     fn new() -> Self {
         let playing = false;
-        let duration = None;
         let position = None;
         let seek_position = None;
         Self {
             playing,
-            duration,
             position,
             seek_position,
         }
@@ -127,23 +130,18 @@ impl AudioPlayerControllerState {
 }
 
 struct AudioPlayerExecutor {
-    tx: Sender<PathBuf>,
+    tx: Sender<DecodedTrack>,
     handle: JoinHandle<()>,
 }
 
 impl AudioPlayerExecutor {
     fn new(controller: AudioPlayerController) -> Self {
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = mpsc::channel::<DecodedTrack>();
         let handle = std::thread::spawn(move || {
             let run = move || -> Result<(), Box<dyn Error>> {
                 let mut output = AudioOutputter::new()?;
-                while let Ok(file) = rx.recv() {
-                    let mut track = decoder::decode(&file)?;
+                while let Ok(mut track) = rx.recv() {
                     let mut resampler = None;
-                    {
-                        let mut state = controller.state.lock().unwrap();
-                        (*state).duration = Some(track.duration());
-                    }
                     loop {
                         {
                             let mut state = controller.state.lock().unwrap();
@@ -183,8 +181,8 @@ impl AudioPlayerExecutor {
         Self { tx, handle }
     }
 
-    fn queue<F: AsRef<Path>>(&mut self, file: F) -> Result<(), Box<dyn Error>> {
-        self.tx.send(file.as_ref().to_path_buf())?;
+    fn queue(&self, track: DecodedTrack) -> Result<(), Box<dyn Error>> {
+        self.tx.send(track)?;
         Ok(())
     }
 

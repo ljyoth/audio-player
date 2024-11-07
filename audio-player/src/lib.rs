@@ -1,6 +1,8 @@
 mod decoder;
 mod output;
-mod resampler;
 mod player;
+mod resampler;
+mod track;
 
 pub use player::*;
+pub use track::*;

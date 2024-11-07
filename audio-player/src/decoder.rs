@@ -11,7 +11,9 @@ use symphonia::core::{
 };
 use tracing::info;
 
-pub(super) fn decode<P: AsRef<Path>>(path: &P) -> Result<DecodedTrack, Box<dyn Error>> {
+use crate::{Track, TrackDetails};
+
+pub(super) fn decode<P: AsRef<Path>>(path: &P) -> Result<Track, Box<dyn Error>> {
     let mss = MediaSourceStream::new(Box::new(File::open(path.as_ref())?), Default::default());
     let mut hint = Hint::new();
     if let Some(ext) = path.as_ref().extension() {
@@ -24,49 +26,26 @@ pub(super) fn decode<P: AsRef<Path>>(path: &P) -> Result<DecodedTrack, Box<dyn E
         &MetadataOptions::default(),
     )?;
 
-    if let Some(metadata) = probed.format.metadata().current() {
-        metadata.tags().iter().for_each(|tag| match tag {
-            _ => info!("{} {:?} {}", tag.key, tag.std_key, tag.value),
-        });
-    }
-    if let Some(metadata) = probed.metadata.get() {
-        if let Some(metadata) = metadata.current() {
-            metadata.tags().iter().for_each(|tag| match tag {
-                _ => info!("{} {:?} {}", tag.key, tag.std_key, tag.value),
-            });
-        }
-    }
-    let duration = probed
-        .format
-        .default_track()
-        .map(|track| {
-            if let Some(time_base) = track.codec_params.time_base {
-                if let Some(n_frames) = track.codec_params.n_frames {
-                    return Some(time_base.calc_time(n_frames).into());
-                }
-            }
-            None
-        })
-        .flatten()
-        .unwrap();
+    let details = TrackDetails::new(&mut probed);
 
     let track = probed.format.default_track().unwrap();
     let decoder =
         symphonia::default::get_codecs().make(&track.codec_params, &DecoderOptions::default())?;
     let progress = decoder.codec_params().start_ts;
-    Ok(DecodedTrack {
-        reader: probed.format,
-        decoder,
-        duration,
-        progress,
-        next_packet: None,
+    Ok(Track {
+        decoded: DecodedTrack {
+            reader: probed.format,
+            decoder,
+            progress,
+            next_packet: None,
+        },
+        details,
     })
 }
 
 pub(super) struct DecodedTrack {
     reader: Box<dyn FormatReader>,
     decoder: Box<dyn Decoder>,
-    duration: Duration,
     progress: TimeStamp,
     // buffer next_packet call to accurately determine progress after seek call
     next_packet: Option<Packet>,
@@ -118,10 +97,6 @@ impl DecodedTrack {
         self.decoder.reset();
         self.next_packet = Some(self.next_packet()?);
         Ok(())
-    }
-
-    pub(super) fn duration(&self) -> Duration {
-        self.duration
     }
 
     pub(super) fn progress(&self) -> Duration {

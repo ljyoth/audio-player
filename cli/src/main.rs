@@ -1,7 +1,11 @@
 use audio_player::AudioPlayer;
 use clap::{ArgAction, Parser};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
-use std::{io::{stdout, Write}, path::PathBuf, time::Duration};
+use std::{
+    io::{stdout, Write},
+    path::PathBuf,
+    time::Duration,
+};
 
 #[derive(Debug, Parser)]
 struct CliArgs {
@@ -15,12 +19,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut player = AudioPlayer::new();
     let controller = player.controller().clone();
-    player.open(args.file)?;
+    let track = player.open(args.file)?;
+    let details = track.details().clone();
+    player.queue(track)?;
 
-    // TODO: avoid sleep
-    std::thread::sleep(Duration::from_millis(1000));
-    let duration = controller.duration().unwrap().as_millis();
     const FPS: u64 = 15;
+    let duration = details.duration().ok_or("no duration")?.as_millis();
     if args.progress_bar {
         let bar = ProgressBar::with_draw_target(
             Some(duration as u64),
@@ -34,7 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ))?);
         std::thread::spawn(move || loop {
             std::thread::sleep(Duration::from_millis(1000 / FPS));
-            let position = controller.position().unwrap().as_millis();
+            let position = controller.position().map(|d| d.as_millis()).unwrap_or(0);
             bar.set_position(position as u64);
             bar.set_message(format!(
                 "{:02}:{:02}:{:.3}",
@@ -46,9 +50,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         std::thread::spawn(move || loop {
             std::thread::sleep(Duration::from_millis(1000 / FPS));
-
+            let position = controller.position().map(|d| d.as_millis()).unwrap_or(0);
             print!("\x1b[2K\r");
-            let position = controller.position().unwrap().as_millis();
             print!(
                 "[{:02}:{:02}:{:.3} / {:02}:{:02}:{:.3}]",
                 position / 3600_000,
@@ -59,7 +62,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 (duration % 60_000) as f64 / 1000.0
             );
             stdout().flush().unwrap();
-            // print!("\r");
         });
     }
 
