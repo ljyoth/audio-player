@@ -73,8 +73,8 @@ pub enum AudioPlayerControllerError {
 #[derive(Clone)]
 pub struct AudioPlayerController {
     state: Arc<Mutex<AudioPlayerControllerState>>,
-    playing_condvar: Arc<Condvar>,
-    seeking_condvar: Arc<Condvar>,
+    executor_condvar: Arc<Condvar>,
+    controller_condvar: Arc<Condvar>,
 }
 
 impl AudioPlayerController {
@@ -84,21 +84,21 @@ impl AudioPlayerController {
         let controller_condvar = Arc::new(Condvar::new());
         Self {
             state,
-            playing_condvar: executor_condvar,
-            seeking_condvar: controller_condvar,
+            executor_condvar,
+            controller_condvar,
         }
     }
 
     pub fn play(&self) {
         let mut state = self.state.lock().unwrap();
         (*state).playing = true;
-        self.playing_condvar.notify_all();
+        self.executor_condvar.notify_all();
     }
 
     pub fn pause(&self) {
         let mut state = self.state.lock().unwrap();
         (*state).playing = false;
-        self.playing_condvar.notify_all();
+        self.executor_condvar.notify_all();
     }
 
     pub fn playing(&self) -> bool {
@@ -113,14 +113,18 @@ impl AudioPlayerController {
 
     pub fn seek(&self, progress: Duration) {
         let mut state = self.state.lock().unwrap();
+        if !state.running {
+            return;
+        }
         (*state).seek_position = Some(progress);
-        while (*state).seek_position.is_some() {
-            state = self.seeking_condvar.wait(state).unwrap();
+        while state.playing && state.seek_position.is_some() {
+            state = self.controller_condvar.wait(state).unwrap();
         }
     }
 }
 
 struct AudioPlayerControllerState {
+    running: bool,
     playing: bool,
     position: Option<Duration>,
     seek_position: Option<Duration>,
@@ -128,10 +132,12 @@ struct AudioPlayerControllerState {
 
 impl AudioPlayerControllerState {
     fn new() -> Self {
+        let running = false;
         let playing = false;
         let position = None;
         let seek_position = None;
         Self {
+            running,
             playing,
             position,
             seek_position,
@@ -164,6 +170,10 @@ impl AudioPlayerExecutor {
                 output.play()?;
                 while let Ok(mut track) = rx.recv() {
                     let mut resampler = None;
+                    {
+                        let mut state = controller.state.lock().unwrap();
+                        state.running = true;
+                    }
                     while !dropped.load(std::sync::atomic::Ordering::Acquire) {
                         {
                             let mut state = controller.state.lock().unwrap();
@@ -171,13 +181,13 @@ impl AudioPlayerExecutor {
                                 // TODO: skip packets
                                 track.seek(seek_position)?;
                                 (*state).seek_position = None;
-                                controller.seeking_condvar.notify_all();
+                                controller.controller_condvar.notify_all();
                             }
                             (*state).position = Some(track.progress()?);
                             let paused = !state.playing;
                             while !state.playing {
                                 output.pause()?;
-                                state = controller.playing_condvar.wait(state).unwrap();
+                                state = controller.executor_condvar.wait(state).unwrap();
                             }
                             if paused {
                                 output.play()?;
@@ -198,6 +208,11 @@ impl AudioPlayerExecutor {
                         } else {
                             break;
                         }
+                    }
+                    {
+                        let mut state = controller.state.lock().unwrap();
+                        state.running = false;
+                        controller.controller_condvar.notify_all();
                     }
                 }
                 Ok(())
