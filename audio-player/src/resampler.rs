@@ -1,3 +1,6 @@
+use std::borrow::Cow;
+
+use cpal::FromSample;
 use rubato::{
     ResampleError, Resampler, ResamplerConstructionError, SincFixedIn, SincInterpolationParameters,
     SincInterpolationType, WindowFunction,
@@ -5,6 +8,7 @@ use rubato::{
 use symphonia::core::{
     audio::{AsAudioBufferRef, AudioBuffer, AudioBufferRef, Signal, SignalSpec},
     conv::IntoSample,
+    sample::Sample,
     units::Duration,
 };
 use tracing::{debug, info};
@@ -18,11 +22,11 @@ pub(super) enum ResamplerError {
 }
 
 pub(super) struct SymphoniaResampler {
-    resampler: SincFixedIn<f32>,
-    input_buffer: Vec<Vec<f32>>,
-    output_buffer: Vec<Vec<f32>>,
-    output_audio_buffer: AudioBuffer<f32>,
-    interleaved: Vec<f32>,
+    resampler: SincFixedIn<f64>,
+    input_buffer: Vec<Vec<f64>>,
+    output_buffer: Vec<Vec<f64>>,
+    output_audio_buffer: AudioBuffer<f64>,
+    interleaved: Vec<f64>,
 }
 
 impl SymphoniaResampler {
@@ -31,7 +35,7 @@ impl SymphoniaResampler {
         buffer: &AudioBufferRef,
     ) -> Result<Self, ResamplerError> {
         let spec = buffer.spec();
-        let resampler = SincFixedIn::<f32>::new(
+        let resampler = SincFixedIn::new(
             output_sample_rate as f64 / spec.rate as f64,
             2.0,
             SincInterpolationParameters {
@@ -52,7 +56,7 @@ impl SymphoniaResampler {
         //     spec.channels.count(),
         // )?;
 
-        let input_buffer: Vec<Vec<f32>> = (0..spec.channels.count())
+        let input_buffer = (0..spec.channels.count())
             .map(|_| Vec::with_capacity(buffer.frames()))
             .collect();
         // Need to pre-fill or resampler will fail
@@ -87,72 +91,17 @@ impl SymphoniaResampler {
         buffer: AudioBufferRef,
     ) -> Result<AudioBufferRef, ResamplerError> {
         let spec = buffer.spec();
-
         match buffer {
-            AudioBufferRef::U8(ref buffer) => (0..spec.channels.count()).for_each(|c| {
-                self.input_buffer[c].clear();
-                buffer
-                    .chan(c)
-                    .iter()
-                    .for_each(|&s| self.input_buffer[c].push(s.into_sample()));
-            }),
-            AudioBufferRef::U16(ref buffer) => (0..spec.channels.count()).for_each(|c| {
-                self.input_buffer[c].clear();
-                buffer
-                    .chan(c)
-                    .iter()
-                    .for_each(|&s| self.input_buffer[c].push(s.into_sample()));
-            }),
-            AudioBufferRef::U24(ref buffer) => (0..spec.channels.count()).for_each(|c| {
-                self.input_buffer[c].clear();
-                buffer
-                    .chan(c)
-                    .iter()
-                    .for_each(|&s| self.input_buffer[c].push(s.into_sample()));
-            }),
-            AudioBufferRef::U32(ref buffer) => (0..spec.channels.count()).for_each(|c| {
-                self.input_buffer[c].clear();
-                buffer
-                    .chan(c)
-                    .iter()
-                    .for_each(|&s| self.input_buffer[c].push(s.into_sample()));
-            }),
-            AudioBufferRef::S8(ref buffer) => (0..spec.channels.count()).for_each(|c| {
-                self.input_buffer[c].clear();
-                buffer
-                    .chan(c)
-                    .iter()
-                    .for_each(|&s| self.input_buffer[c].push(s.into_sample()));
-            }),
-            AudioBufferRef::S16(ref buffer) => (0..spec.channels.count()).for_each(|c| {
-                self.input_buffer[c].clear();
-                buffer
-                    .chan(c)
-                    .iter()
-                    .for_each(|&s| self.input_buffer[c].push(s.into_sample()));
-            }),
-            AudioBufferRef::S24(ref buffer) => (0..spec.channels.count()).for_each(|c| {
-                self.input_buffer[c].clear();
-                buffer
-                    .chan(c)
-                    .iter()
-                    .for_each(|&s| self.input_buffer[c].push(s.into_sample()));
-            }),
-            AudioBufferRef::S32(ref buffer) => (0..spec.channels.count()).for_each(|c| {
-                self.input_buffer[c].clear();
-                buffer
-                    .chan(c)
-                    .iter()
-                    .for_each(|&s| self.input_buffer[c].push(s.into_sample()));
-            }),
-            AudioBufferRef::F32(ref buffer) => (0..spec.channels.count()).for_each(|c| {
-                self.input_buffer[c].clear();
-                buffer
-                    .chan(c)
-                    .iter()
-                    .for_each(|&s| self.input_buffer[c].push(s.into_sample()));
-            }),
-            AudioBufferRef::F64(ref buffer) => todo!(),
+            AudioBufferRef::U8(ref buffer) => fill_f64_buffer(buffer, &mut self.input_buffer),
+            AudioBufferRef::U16(ref buffer) => fill_f64_buffer(buffer, &mut self.input_buffer),
+            AudioBufferRef::U24(ref buffer) => fill_f64_buffer(buffer, &mut self.input_buffer),
+            AudioBufferRef::U32(ref buffer) => fill_f64_buffer(buffer, &mut self.input_buffer),
+            AudioBufferRef::S8(ref buffer) => fill_f64_buffer(buffer, &mut self.input_buffer),
+            AudioBufferRef::S16(ref buffer) => fill_f64_buffer(buffer, &mut self.input_buffer),
+            AudioBufferRef::S24(ref buffer) => fill_f64_buffer(buffer, &mut self.input_buffer),
+            AudioBufferRef::S32(ref buffer) => fill_f64_buffer(buffer, &mut self.input_buffer),
+            AudioBufferRef::F32(ref buffer) => fill_f64_buffer(buffer, &mut self.input_buffer),
+            AudioBufferRef::F64(ref buffer) => fill_f64_buffer(buffer, &mut self.input_buffer),
         };
 
         let (input_frames, output_frames) = Resampler::process_into_buffer(
@@ -186,10 +135,10 @@ impl SymphoniaResampler {
         Ok(self.output_audio_buffer.as_audio_buffer_ref())
     }
 
-    pub(super) fn resample_into_f32(
+    pub(super) fn resample_into_f64(
         &mut self,
         buffer: AudioBufferRef,
-    ) -> Result<&[f32], ResamplerError> {
+    ) -> Result<&[f64], ResamplerError> {
         let spec = buffer.spec();
 
         match buffer {
@@ -231,4 +180,17 @@ impl SymphoniaResampler {
         }
         Ok(self.interleaved.as_slice())
     }
+}
+
+fn fill_f64_buffer<S: Sample + IntoSample<f64>>(
+    buffer: &Cow<'_, AudioBuffer<S>>,
+    f64_buffer: &mut Vec<Vec<f64>>,
+) {
+    (0..f64_buffer.len()).for_each(|c| {
+        f64_buffer[c].clear();
+        buffer
+            .chan(c)
+            .iter()
+            .for_each(|&s| f64_buffer[c].push(s.into_sample()));
+    })
 }
