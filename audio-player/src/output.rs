@@ -1,7 +1,8 @@
 use std::sync::mpsc::{self, SyncSender, TryRecvError};
 
 use cpal::{
-    traits::{DeviceTrait, HostTrait, StreamTrait}, Device, Sample, SizedSample, Stream, StreamError, SupportedStreamConfig,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+    Device, Sample, SizedSample, Stream, StreamError, SupportedStreamConfig,
 };
 use symphonia::core::{
     audio::{AudioBufferRef, SampleBuffer},
@@ -25,6 +26,8 @@ pub(super) enum AudioOutputterError {
     BuildStream(#[from] cpal::BuildStreamError),
     #[error("PlayStreamError {0}")]
     PlayStream(#[from] cpal::PlayStreamError),
+    #[error("PauseStreamError {0}")]
+    PauseStream(#[from] cpal::PauseStreamError),
 }
 
 pub(super) struct AudioOutputter;
@@ -67,6 +70,8 @@ impl AudioOutputter {
 pub(super) trait AudioOutputWriter {
     // TODO: create shared AudioBufferRef
     fn write(&mut self, data: AudioBufferRef);
+    fn play(&mut self) -> Result<(), AudioOutputterError>;
+    fn pause(&mut self) -> Result<(), AudioOutputterError>;
     fn sample_rate(&self) -> &u32;
 }
 
@@ -101,7 +106,6 @@ impl<T: SizedSample + ConvertibleSample + Send + 'static> SymphoniaAudioOutputte
             handle_err,
             None,
         )?;
-        stream.play()?;
 
         Ok(Box::new(SymphoniaAudioOutputter {
             stream,
@@ -126,6 +130,16 @@ impl<T: SizedSample + ConvertibleSample + Send + 'static> AudioOutputWriter
         sample_buffer.samples().iter().for_each(|&s| {
             self.tx.send(s).unwrap();
         })
+    }
+
+    fn play(&mut self) -> Result<(), AudioOutputterError> {
+        self.stream.play()?;
+        Ok(())
+    }
+
+    fn pause(&mut self) -> Result<(), AudioOutputterError> {
+        self.stream.pause()?;
+        Ok(())
     }
 
     fn sample_rate(&self) -> &u32 {

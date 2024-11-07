@@ -161,6 +161,7 @@ impl AudioPlayerExecutor {
         let handle = std::thread::spawn(move || {
             let run = move || -> Result<(), Box<dyn Error>> {
                 let mut output = AudioOutputter::new()?;
+                output.play()?;
                 while let Ok(mut track) = rx.recv() {
                     let mut resampler = None;
                     while !dropped.load(std::sync::atomic::Ordering::Acquire) {
@@ -173,8 +174,13 @@ impl AudioPlayerExecutor {
                                 controller.seeking_condvar.notify_all();
                             }
                             (*state).position = Some(track.progress()?);
+                            let paused = !state.playing;
                             while !state.playing {
+                                output.pause()?;
                                 state = controller.playing_condvar.wait(state).unwrap();
+                            }
+                            if paused {
+                                output.play()?;
                             }
                         }
 
