@@ -29,6 +29,9 @@ fn main() -> Result<()> {
     if let Some(title) = details.title() {
         println!("Title: {}", title);
     }
+    if let Some(artist) = details.artist() {
+        println!("Title: {}", artist);
+    }
     const FPS: u64 = 15;
     let duration = details.duration().ok_or(eyre!("no duration"))?.as_millis();
     if args.progress_bar {

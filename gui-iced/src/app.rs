@@ -1,9 +1,7 @@
 use std::{path::PathBuf, time::Duration};
 
-use audio_player::Track;
-use color_eyre::owo_colors::{colors::xterm::ElectricIndigo, OwoColorize};
 use iced::{
-    alignment::{Horizontal, Vertical},
+    alignment::Vertical,
     executor, font, theme, time,
     widget::{button, column, container, image, lazy, row, svg, text, Space},
     window, Alignment, Application, Background, Border, Color, Command, Element, Font, Length,
@@ -126,8 +124,13 @@ impl Application for MusicPlayerApplication {
         let track_description = container(lazy(self.player.current(), |_| {
             match self.player.current() {
                 Some(track) => {
-                    let file_path =
-                        text(track.file_path().to_string_lossy()).shaping(text::Shaping::Advanced);
+                    let file_path = text(track.file_path().to_string_lossy())
+                        .shaping(text::Shaping::Advanced)
+                        .font(Font {
+                            weight: font::Weight::Light,
+                            ..Default::default()
+                        })
+                        .size(16);
                     let title = match track.details().title() {
                         Some(title) => text(title)
                             .size(36)
@@ -139,6 +142,11 @@ impl Application for MusicPlayerApplication {
                             .into(),
                         None => Element::from(Space::with_height(0)),
                     };
+                    let artist = match track.details().artist() {
+                        Some(title) => text(title).size(24).shaping(text::Shaping::Advanced).into(),
+                        None => Element::from(Space::with_height(0)),
+                    };
+                    let separator = Space::with_height(10);
                     let cover = match track.details().cover() {
                         Some(cover) => {
                             // TODO: avoid clones
@@ -147,7 +155,7 @@ impl Application for MusicPlayerApplication {
                         }
                         None => Element::from(Space::with_height(Length::Fill)),
                     };
-                    column![file_path, title, cover]
+                    column![file_path, title, artist, separator, cover]
                         .align_items(Alignment::Center)
                         .into()
                 }

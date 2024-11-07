@@ -3,6 +3,7 @@ mod player;
 
 use app::{MusicPlayerApplication, MusicPlayerFlags};
 use clap::Parser;
+use color_eyre::eyre::Result;
 use iced::{Application, Settings};
 use std::path::PathBuf;
 
@@ -12,7 +13,7 @@ struct CliArgs {
     file: Option<PathBuf>,
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<()> {
     let args = CliArgs::parse();
 
     MusicPlayerApplication::run(Settings {
