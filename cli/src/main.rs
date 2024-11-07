@@ -19,8 +19,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut player = AudioPlayer::new();
     let controller = player.controller().clone();
-    let track = player.open(args.file)?;
+    let track = player.open(&args.file)?;
     let details = track.details().clone();
+    player.queue(track)?;
+    let track = player.open(&args.file)?;
     player.queue(track)?;
 
     const FPS: u64 = 15;

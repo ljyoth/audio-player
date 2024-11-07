@@ -43,7 +43,7 @@ impl AudioPlayer {
         self.player.controller().pause().unwrap();
     }
 
-    pub(super) fn stop(&self) {
+    pub(super) fn stop(&mut self) {
         self.player.drain().unwrap()
     }
 

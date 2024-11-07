@@ -2,6 +2,7 @@ use std::{
     error::Error,
     path::{Path, PathBuf},
     sync::{
+        atomic::{AtomicBool, Ordering},
         mpsc::{self, Sender},
         Arc, Condvar, Mutex,
     },
@@ -47,8 +48,9 @@ impl AudioPlayer {
     }
 
     // drain all tracks in the queue
-    pub fn drain(&self) -> Result<(), Box<dyn Error>> {
-        todo!();
+    pub fn drain(&mut self) -> Result<(), Box<dyn Error>> {
+        self.executor = AudioPlayerExecutor::new(self.controller.clone());
+        Ok(())
     }
 
     pub fn wait_until_end(self) -> Result<(), Box<dyn Error>> {
@@ -130,19 +132,24 @@ impl AudioPlayerControllerState {
 }
 
 struct AudioPlayerExecutor {
-    tx: Sender<DecodedTrack>,
-    handle: JoinHandle<()>,
+    /// This is an option to drop in [AudioPlayerExecutor::wait_until_end]
+    tx: Option<Sender<DecodedTrack>>,
+    dropped: Arc<AtomicBool>,
+    /// This is an option to `join` in [AudioPlayerExecutor::wait_until_end]
+    handle: Option<JoinHandle<()>>,
 }
 
 impl AudioPlayerExecutor {
     fn new(controller: AudioPlayerController) -> Self {
         let (tx, rx) = mpsc::channel::<DecodedTrack>();
+        let dropped = Arc::new(AtomicBool::new(false));
+        let dropped_clone = dropped.clone();
         let handle = std::thread::spawn(move || {
             let run = move || -> Result<(), Box<dyn Error>> {
                 let mut output = AudioOutputter::new()?;
                 while let Ok(mut track) = rx.recv() {
                     let mut resampler = None;
-                    loop {
+                    while !dropped.load(std::sync::atomic::Ordering::Acquire) {
                         {
                             let mut state = controller.state.lock().unwrap();
                             if let Some(seek_position) = state.seek_position {
@@ -178,17 +185,27 @@ impl AudioPlayerExecutor {
             run().unwrap();
         });
 
-        Self { tx, handle }
+        Self {
+            tx: Some(tx),
+            dropped: dropped_clone,
+            handle: Some(handle),
+        }
     }
 
     fn queue(&self, track: DecodedTrack) -> Result<(), Box<dyn Error>> {
-        self.tx.send(track)?;
+        self.tx.as_ref().unwrap().send(track)?;
         Ok(())
     }
 
-    fn wait_until_end(self) -> Result<(), Box<dyn Error>> {
-        drop(self.tx);
-        self.handle.join().unwrap();
+    fn wait_until_end(mut self) -> Result<(), Box<dyn Error>> {
+        self.tx = None;
+        self.handle.take().unwrap().join().unwrap();
         Ok(())
+    }
+}
+
+impl Drop for AudioPlayerExecutor {
+    fn drop(&mut self) {
+        self.dropped.store(true, Ordering::Release);
     }
 }
