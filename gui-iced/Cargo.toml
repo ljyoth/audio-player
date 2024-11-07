@@ -3,6 +3,10 @@ name = "gui-iced"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "mp-iced"
+path = "src/main.rs"
+
 [dependencies]
 audio-player = { path = "../audio-player" }
 clap = { workspace = true }

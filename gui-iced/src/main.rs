@@ -1,10 +1,12 @@
+#![windows_subsystem = "windows"]
+
 mod app;
 mod player;
 
 use app::{MusicPlayerApplication, MusicPlayerFlags};
 use clap::Parser;
 use color_eyre::eyre::Result;
-use iced::{Application, Settings};
+use iced::{advanced::graphics::core::window, Application, Settings};
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
@@ -19,6 +21,14 @@ fn main() -> Result<()> {
     MusicPlayerApplication::run(Settings {
         flags: MusicPlayerFlags {
             file_path: args.file,
+        },
+        window: window::Settings {
+            icon: Some(window::icon::from_rgba(
+                include_bytes!("../assets/icon.rgba").to_vec(),
+                256,
+                256,
+            )?),
+            ..Default::default()
         },
         ..Default::default()
     })?;
