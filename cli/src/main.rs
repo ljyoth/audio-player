@@ -25,6 +25,10 @@ fn main() -> Result<()> {
     let details = track.details().clone();
     player.queue(track)?;
 
+    println!("File: {}", args.file.to_string_lossy());
+    if let Some(title) = details.title() {
+        println!("Title: {}", title);
+    }
     const FPS: u64 = 15;
     let duration = details.duration().ok_or(eyre!("no duration"))?.as_millis();
     if args.progress_bar {
