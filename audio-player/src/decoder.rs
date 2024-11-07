@@ -2,7 +2,7 @@ use std::{fs::File, path::Path, time::Duration};
 
 use symphonia::core::{
     audio::AudioBufferRef,
-    codecs::{Decoder, DecoderOptions},
+    codecs::{CodecParameters, Decoder, DecoderOptions},
     formats::{FormatOptions, FormatReader, Packet, SeekMode, SeekTo},
     io::MediaSourceStream,
     meta::MetadataOptions,
@@ -67,6 +67,10 @@ pub(super) struct DecodedTrack {
 }
 
 impl DecodedTrack {
+    pub(super) fn codec_params(&self) -> &CodecParameters {
+        self.decoder.codec_params()
+    }
+
     pub(super) fn next(&mut self) -> Result<AudioBufferRef, DecoderError> {
         let packet = match self.next_packet.take() {
             Some(packet) => {

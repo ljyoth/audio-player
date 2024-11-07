@@ -72,7 +72,7 @@ pub(super) trait AudioOutputWriter {
     fn write(&mut self, data: AudioBufferRef);
     fn play(&mut self) -> Result<(), AudioOutputterError>;
     fn pause(&mut self) -> Result<(), AudioOutputterError>;
-    fn sample_rate(&self) -> &u32;
+    fn sample_rate(&self) -> u32;
 }
 
 struct SymphoniaAudioOutputter<T: Sample> {
@@ -142,7 +142,7 @@ impl<T: SizedSample + ConvertibleSample + Send + 'static> AudioOutputWriter
         Ok(())
     }
 
-    fn sample_rate(&self) -> &u32 {
-        &self.sample_rate
+    fn sample_rate(&self) -> u32 {
+        self.sample_rate
     }
 }

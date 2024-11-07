@@ -55,6 +55,10 @@ impl AudioPlayer {
         Ok(())
     }
 
+    pub fn running(&self) -> bool {
+        self.controller.running()
+    }
+
     // drain all tracks in the queue
     pub fn drain(&mut self) {
         self.executor = AudioPlayerExecutor::new(self.controller.clone());
@@ -121,6 +125,11 @@ impl AudioPlayerController {
             state = self.controller_condvar.wait(state).unwrap();
         }
     }
+
+    fn running(&self) -> bool {
+        let state = self.state.lock().unwrap();
+        (*state).running
+    }
 }
 
 struct AudioPlayerControllerState {
@@ -169,7 +178,12 @@ impl AudioPlayerExecutor {
                 let mut output = AudioOutputter::new()?;
                 output.play()?;
                 while let Ok(mut track) = rx.recv() {
-                    let mut resampler = None;
+                    // TODO: handle `delay` and `padding`
+                    let mut resampler = if track.codec_params().sample_rate.is_some_and(|r| r == output.sample_rate()) {
+                        None
+                    } else {
+                        Some(SymphoniaResampler::new(track.codec_params(), output.sample_rate())?)
+                    };
                     {
                         let mut state = controller.state.lock().unwrap();
                         state.running = true;
@@ -195,10 +209,6 @@ impl AudioPlayerExecutor {
                         }
 
                         if let Ok(buffer) = track.next() {
-                            if resampler.is_none() && buffer.spec().rate != *output.sample_rate() {
-                                resampler =
-                                    Some(SymphoniaResampler::new(*output.sample_rate(), &buffer)?);
-                            }
                             let buffer = match resampler {
                                 Some(ref mut resampler) => resampler.resample(buffer)?,
                                 None => buffer,

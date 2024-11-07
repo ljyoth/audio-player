@@ -1,11 +1,12 @@
 use std::borrow::Cow;
 
 use rubato::{
-    ResampleError, Resampler, ResamplerConstructionError, SincFixedIn, SincInterpolationParameters,
-    SincInterpolationType, WindowFunction,
+    ResampleError, Resampler, ResamplerConstructionError, SincFixedIn,
+    SincInterpolationParameters, SincInterpolationType, WindowFunction,
 };
 use symphonia::core::{
     audio::{AsAudioBufferRef, AudioBuffer, AudioBufferRef, Signal, SignalSpec},
+    codecs::CodecParameters,
     conv::IntoSample,
     sample::Sample,
     units::Duration,
@@ -14,6 +15,8 @@ use tracing::{debug, info};
 
 #[derive(Debug, thiserror::Error)]
 pub(super) enum ResamplerError {
+    #[error("Invalid CodecParameters")]
+    InvalidCodecParameters,
     #[error("Rubato ResamplerConstructionError: {0}")]
     RubatoResamplerConstruction(#[from] ResamplerConstructionError),
     #[error("Rubato ResampleError: {0}")]
@@ -30,12 +33,20 @@ pub(super) struct SymphoniaResampler {
 
 impl SymphoniaResampler {
     pub(super) fn new(
+        codec_params: &CodecParameters,
         output_sample_rate: u32,
-        buffer: &AudioBufferRef,
     ) -> Result<Self, ResamplerError> {
-        let spec = buffer.spec();
+        let input_sample_rate = codec_params
+            .sample_rate
+            .ok_or(ResamplerError::InvalidCodecParameters)?;
+        let chunk_size = codec_params
+            .max_frames_per_packet
+            .ok_or(ResamplerError::InvalidCodecParameters)? as usize;
+        let channels = codec_params
+            .channels
+            .ok_or(ResamplerError::InvalidCodecParameters)?;
         let resampler = SincFixedIn::new(
-            output_sample_rate as f64 / spec.rate as f64,
+            output_sample_rate as f64 / input_sample_rate as f64,
             2.0,
             SincInterpolationParameters {
                 sinc_len: 256,
@@ -44,19 +55,19 @@ impl SymphoniaResampler {
                 oversampling_factor: 256,
                 window: WindowFunction::BlackmanHarris2,
             },
-            buffer.frames(),
-            spec.channels.count(),
+            chunk_size,
+            channels.count(),
         )?;
         // let mut resampler = FftFixedIn::new(
-        //     self.sample_rate as usize,
-        //     spec.rate as usize,
-        //     buffer.frames(),
+        //     input_sample_rate as usize,
+        //     output_sample_rate as usize,
+        //     chunk_size,
         //     2,
-        //     spec.channels.count(),
+        //     channels.count(),
         // )?;
 
-        let input_buffer = (0..spec.channels.count())
-            .map(|_| Vec::with_capacity(buffer.frames()))
+        let input_buffer = (0..channels.count())
+            .map(|_| Vec::with_capacity(chunk_size))
             .collect();
         // Need to pre-fill or resampler will fail
         let output_buffer = Resampler::output_buffer_allocate(&resampler, true);
@@ -66,7 +77,7 @@ impl SymphoniaResampler {
             output_buffer[0].len() as Duration,
             SignalSpec {
                 rate: output_sample_rate,
-                channels: spec.channels,
+                channels,
             },
         );
         info!(
@@ -102,6 +113,7 @@ impl SymphoniaResampler {
             AudioBufferRef::F64(ref buffer) => fill_f64_buffer(buffer, &mut self.input_buffer),
         };
 
+        self.resampler.set_chunk_size(buffer.frames())?;
         let (input_frames, output_frames) = Resampler::process_into_buffer(
             &mut self.resampler,
             &self.input_buffer,
