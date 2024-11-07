@@ -1,9 +1,15 @@
-use std::{error::Error, fs::File, io::BufReader, path::Path, time::Duration};
+use std::{
+    error::Error,
+    fs::File,
+    io::BufReader,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use audio_player::{AudioPlayerError, TrackDetails};
 
 pub(super) struct AudioPlayer {
-    track: Option<TrackDetails>,
+    track: Option<Track>,
     player: audio_player::AudioPlayer,
 }
 
@@ -19,14 +25,17 @@ impl AudioPlayer {
 
     pub(super) fn open<P: AsRef<Path>>(&mut self, path: P) -> Result<(), AudioPlayerError> {
         let track = self.player.open(path.as_ref().to_path_buf())?;
-        self.track = Some(track.details().clone());
+        self.track = Some(Track {
+            file_path: path.as_ref().to_path_buf(),
+            details: track.details().clone(),
+        });
         self.player.queue(track)?;
 
         Ok(())
     }
 
     /// Get the current playing track
-    pub(super) fn current(&self) -> Option<&TrackDetails> {
+    pub(super) fn current(&self) -> Option<&Track> {
         self.track.as_ref()
     }
 
@@ -55,5 +64,20 @@ impl AudioPlayer {
 
     pub(super) fn seek(&self, position: Duration) {
         self.player.controller().seek(position);
+    }
+}
+
+pub(super) struct Track {
+    file_path: PathBuf,
+    details: TrackDetails,
+}
+
+impl Track {
+    pub(super) fn file_path(&self) -> &PathBuf {
+        &self.file_path
+    }
+
+    pub(super) fn details(&self) -> &TrackDetails {
+        &self.details
     }
 }

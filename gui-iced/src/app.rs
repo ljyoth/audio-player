@@ -1,11 +1,7 @@
 use std::{path::PathBuf, time::Duration};
 
 use iced::{
-    alignment::Vertical,
-    executor, theme, time,
-    widget::{button, column, container, image, lazy, row, svg, Space},
-    window, Alignment, Application, Background, Border, Color, Command, Element, Length, Padding,
-    Size, Subscription, Theme,
+    alignment::Vertical, executor, theme, time, widget::{button, column, container, image, lazy, row, svg, text, Space}, window, Alignment, Application, Background, Border, Color, Command, Element, Length, Padding, Size, Subscription, Theme
 };
 use iced_aw::{
     menu::{self, Item, Menu},
@@ -55,8 +51,10 @@ impl Application for MusicPlayerApplication {
 
     fn title(&self) -> String {
         if let Some(track) = self.player.current() {
-            if let Some(title) = track.title() {
+            if let Some(title) = track.details().title() {
                 return format!("Music Player - {}", title);
+            } else {
+                return format!("Music Player - {}", track.file_path().to_string_lossy());
             }
         }
         "Music Player".into()
@@ -118,10 +116,13 @@ impl Application for MusicPlayerApplication {
         .draw_path(menu::DrawPath::Backdrop);
 
         let cover_image = container(lazy(
-            self.player.current().as_ref().map(|&track| track.title()),
+            self.player
+                .current()
+                .as_ref()
+                .map(|&track| track.details().title()),
             |_| {
                 if let Some(track) = self.player.current() {
-                    if let Some(cover) = track.cover() {
+                    if let Some(cover) = track.details().cover() {
                         // TODO: avoid clones
                         let handle = image::Handle::from_memory(cover.data.clone());
                         return image::viewer(handle).into();
@@ -134,7 +135,7 @@ impl Application for MusicPlayerApplication {
         .align_y(Vertical::Center);
 
         let track_duration = match self.player.current() {
-            Some(track) => match track.duration() {
+            Some(track) => match track.details().duration() {
                 Some(duration) => duration.as_micros() as f64,
                 None => 0.0,
             },
