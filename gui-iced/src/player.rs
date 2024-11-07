@@ -1,9 +1,5 @@
 use std::{
-    error::Error,
-    fs::File,
-    io::BufReader,
-    path::{Path, PathBuf},
-    time::Duration,
+    error::Error, fs::File, hash::Hash, io::BufReader, path::{Path, PathBuf}, time::Duration
 };
 
 use audio_player::{AudioPlayerError, TrackDetails};
@@ -79,5 +75,11 @@ impl Track {
 
     pub(super) fn details(&self) -> &TrackDetails {
         &self.details
+    }
+}
+
+impl Hash for Track {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.file_path.hash(state);
     }
 }

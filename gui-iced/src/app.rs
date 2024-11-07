@@ -1,11 +1,13 @@
 use std::{path::PathBuf, time::Duration};
 
+use audio_player::Track;
+use color_eyre::owo_colors::{colors::xterm::ElectricIndigo, OwoColorize};
 use iced::{
-    alignment::Vertical,
-    executor, theme, time,
+    alignment::{Horizontal, Vertical},
+    executor, font, theme, time,
     widget::{button, column, container, image, lazy, row, svg, text, Space},
-    window, Alignment, Application, Background, Border, Color, Command, Element, Length, Padding,
-    Size, Subscription, Theme,
+    window, Alignment, Application, Background, Border, Color, Command, Element, Font, Length,
+    Padding, Size, Subscription, Theme,
 };
 use iced_aw::{
     menu::{self, Item, Menu},
@@ -121,22 +123,37 @@ impl Application for MusicPlayerApplication {
         )]
         .draw_path(menu::DrawPath::Backdrop);
 
-        let cover_image = container(lazy(
-            self.player
-                .current()
-                .as_ref()
-                .map(|&track| track.details().title()),
-            |_| {
-                if let Some(track) = self.player.current() {
-                    if let Some(cover) = track.details().cover() {
-                        // TODO: avoid clones
-                        let handle = image::Handle::from_memory(cover.data.clone());
-                        return image::viewer(handle).into();
-                    }
+        let track_description = container(lazy(self.player.current(), |_| {
+            match self.player.current() {
+                Some(track) => {
+                    let file_path =
+                        text(track.file_path().to_string_lossy()).shaping(text::Shaping::Advanced);
+                    let title = match track.details().title() {
+                        Some(title) => text(title)
+                            .size(36)
+                            .font(Font {
+                                weight: font::Weight::Bold,
+                                ..Default::default()
+                            })
+                            .shaping(text::Shaping::Advanced)
+                            .into(),
+                        None => Element::from(Space::with_height(0)),
+                    };
+                    let cover = match track.details().cover() {
+                        Some(cover) => {
+                            // TODO: avoid clones
+                            let handle = image::Handle::from_memory(cover.data.clone());
+                            image::viewer(handle).height(Length::Fill).into()
+                        }
+                        None => Element::from(Space::with_height(Length::Fill)),
+                    };
+                    column![file_path, title, cover]
+                        .align_items(Alignment::Center)
+                        .into()
                 }
-                Element::from(Space::with_height(0))
-            },
-        ))
+                None => Element::from(Space::with_height(0)),
+            }
+        }))
         .height(Length::Fill)
         .align_y(Vertical::Center);
 
@@ -206,7 +223,7 @@ impl Application for MusicPlayerApplication {
         column![
             menu_bar,
             container(
-                column![cover_image, seek_progress, controls]
+                column![track_description, seek_progress, controls]
                     .spacing(10)
                     .align_items(Alignment::Center),
             )
