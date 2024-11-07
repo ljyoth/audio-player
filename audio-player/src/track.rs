@@ -4,6 +4,7 @@ use symphonia::core::{
     meta::{MetadataRevision, StandardTagKey, StandardVisualKey, Value, Visual},
     probe::ProbeResult,
 };
+use tracing::debug;
 
 use crate::decoder::DecodedTrack;
 
@@ -35,7 +36,7 @@ impl TrackDetails {
                 .find(|&visual| match visual.usage {
                     Some(StandardVisualKey::FrontCover) => true,
                     _ => {
-                        println!("{:?} {}", visual.usage, visual.media_type);
+                        debug!("visual: {{ usage: {:?} media_type: {} }}", visual.usage, visual.media_type);
                         false
                     }
                 });
@@ -47,7 +48,7 @@ impl TrackDetails {
                 _ => None,
             });
             metadata.tags().iter().for_each(|tag| match tag {
-                _ => println!("{} {:?} {}", tag.key, tag.std_key, tag.value),
+                _ => debug!("{} {:?} {}", tag.key, tag.std_key, tag.value),
             });
             (cover, title)
         }
