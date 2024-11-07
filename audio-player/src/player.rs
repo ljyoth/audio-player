@@ -13,7 +13,7 @@ use std::{
 use crate::{
     decoder::{self, DecodedTrack, DecoderError},
     output::AudioOutputter,
-    resampler::SymphoniaResampler,
+    resampler::{ResamplerError, SymphoniaResampler},
     track::Track,
 };
 
@@ -179,10 +179,18 @@ impl AudioPlayerExecutor {
                 output.play()?;
                 while let Ok(mut track) = rx.recv() {
                     // TODO: handle `delay` and `padding`
-                    let mut resampler = if track.codec_params().sample_rate.is_some_and(|r| r == output.sample_rate()) {
+                    let mut resampler = if track
+                        .codec_params()
+                        .sample_rate
+                        .is_some_and(|r| r == output.sample_rate())
+                    {
                         None
                     } else {
-                        Some(SymphoniaResampler::new(track.codec_params(), output.sample_rate())?)
+                        match SymphoniaResampler::new(track.codec_params(), output.sample_rate()) {
+                            Ok(r) => Some(r),
+                            Err(ResamplerError::InvalidCodecParameters) => None,
+                            Err(err) => return Err(err)?,
+                        }
                     };
                     {
                         let mut state = controller.state.lock().unwrap();
@@ -209,6 +217,13 @@ impl AudioPlayerExecutor {
                         }
 
                         if let Ok(buffer) = track.next() {
+                            if resampler.is_none() && buffer.spec().rate != output.sample_rate() {
+                                // TODO: see if this can be removed for codecs such as MP3
+                                resampler = Some(SymphoniaResampler::new_with_buffer(
+                                    &buffer,
+                                    output.sample_rate(),
+                                )?);
+                            }
                             let buffer = match resampler {
                                 Some(ref mut resampler) => resampler.resample(buffer)?,
                                 None => buffer,

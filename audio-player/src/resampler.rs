@@ -1,11 +1,11 @@
 use std::borrow::Cow;
 
 use rubato::{
-    ResampleError, Resampler, ResamplerConstructionError, SincFixedIn,
-    SincInterpolationParameters, SincInterpolationType, WindowFunction,
+    ResampleError, Resampler, ResamplerConstructionError, SincFixedIn, SincInterpolationParameters,
+    SincInterpolationType, WindowFunction,
 };
 use symphonia::core::{
-    audio::{AsAudioBufferRef, AudioBuffer, AudioBufferRef, Signal, SignalSpec},
+    audio::{AsAudioBufferRef, AudioBuffer, AudioBufferRef, Channels, Signal, SignalSpec},
     codecs::CodecParameters,
     conv::IntoSample,
     sample::Sample,
@@ -32,19 +32,12 @@ pub(super) struct SymphoniaResampler {
 }
 
 impl SymphoniaResampler {
-    pub(super) fn new(
-        codec_params: &CodecParameters,
+    fn new_inner(
+        input_sample_rate: u32,
+        chunk_size: usize,
+        channels: Channels,
         output_sample_rate: u32,
     ) -> Result<Self, ResamplerError> {
-        let input_sample_rate = codec_params
-            .sample_rate
-            .ok_or(ResamplerError::InvalidCodecParameters)?;
-        let chunk_size = codec_params
-            .max_frames_per_packet
-            .ok_or(ResamplerError::InvalidCodecParameters)? as usize;
-        let channels = codec_params
-            .channels
-            .ok_or(ResamplerError::InvalidCodecParameters)?;
         let resampler = SincFixedIn::new(
             output_sample_rate as f64 / input_sample_rate as f64,
             2.0,
@@ -94,6 +87,35 @@ impl SymphoniaResampler {
             output_audio_buffer,
             interleaved,
         })
+    }
+
+    pub(super) fn new(
+        codec_params: &CodecParameters,
+        output_sample_rate: u32,
+    ) -> Result<Self, ResamplerError> {
+        let input_sample_rate = codec_params
+            .sample_rate
+            .ok_or(ResamplerError::InvalidCodecParameters)?;
+        let chunk_size = codec_params
+            .max_frames_per_packet
+            .ok_or(ResamplerError::InvalidCodecParameters)? as usize;
+        let channels = codec_params
+            .channels
+            .ok_or(ResamplerError::InvalidCodecParameters)?;
+        Self::new_inner(input_sample_rate, chunk_size, channels, output_sample_rate)
+    }
+
+    pub(super) fn new_with_buffer(
+        buffer: &AudioBufferRef,
+        output_sample_rate: u32,
+    ) -> Result<Self, ResamplerError> {
+        let spec = buffer.spec();
+        Self::new_inner(
+            spec.rate,
+            buffer.frames(),
+            spec.channels,
+            output_sample_rate,
+        )
     }
 
     pub(super) fn resample(
