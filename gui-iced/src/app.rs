@@ -1,7 +1,11 @@
 use std::{path::PathBuf, time::Duration};
 
 use iced::{
-    alignment::Vertical, executor, theme, time, widget::{button, column, container, image, lazy, row, svg, text, Space}, window, Alignment, Application, Background, Border, Color, Command, Element, Length, Padding, Size, Subscription, Theme
+    alignment::Vertical,
+    executor, theme, time,
+    widget::{button, column, container, image, lazy, row, svg, text, Space},
+    window, Alignment, Application, Background, Border, Color, Command, Element, Length, Padding,
+    Size, Subscription, Theme,
 };
 use iced_aw::{
     menu::{self, Item, Menu},
@@ -38,7 +42,9 @@ impl Application for MusicPlayerApplication {
     fn new(flags: Self::Flags) -> (Self, iced::Command<Message>) {
         let mut player = AudioPlayer::new();
         // TODO handle error
-        player.open(flags.file_path).expect("failed to open");
+        if let Some(p) = flags.file_path {
+            player.open(p).expect("failed to open");
+        }
         (
             Self {
                 player,
@@ -218,7 +224,7 @@ impl Application for MusicPlayerApplication {
 
 #[derive(Debug, Default)]
 pub(super) struct MusicPlayerFlags {
-    pub(super) file_path: PathBuf,
+    pub(super) file_path: Option<PathBuf>,
 }
 
 struct MenuButtonStyle;

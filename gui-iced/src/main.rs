@@ -3,21 +3,13 @@ mod player;
 
 use app::{MusicPlayerApplication, MusicPlayerFlags};
 use clap::Parser;
-use core::time;
 use iced::{Application, Settings};
-use std::{
-    path::PathBuf,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Condvar, Mutex,
-    },
-    time::Duration,
-};
+use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
 struct CliArgs {
     #[arg(index(1))]
-    file: PathBuf,
+    file: Option<PathBuf>,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
