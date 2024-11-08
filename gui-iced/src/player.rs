@@ -1,8 +1,5 @@
 use std::{
-    error::Error,
-    fs::File,
     hash::Hash,
-    io::BufReader,
     path::{Path, PathBuf},
     time::Duration,
 };

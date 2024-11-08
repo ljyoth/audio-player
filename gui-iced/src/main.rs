@@ -6,7 +6,7 @@ mod player;
 use app::{AudioPlayerApplication, AudioPlayerFlags};
 use clap::Parser;
 use color_eyre::eyre::Result;
-use iced::{advanced::graphics::core::window, Application, Settings};
+use iced::advanced::graphics::core::window;
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
@@ -18,19 +18,25 @@ struct CliArgs {
 fn main() -> Result<()> {
     let args = CliArgs::parse();
 
-    AudioPlayerApplication::run(Settings {
-        flags: AudioPlayerFlags {
-            file_path: args.file,
-        },
-        window: window::Settings {
-            icon: Some(window::icon::from_rgba(
-                include_bytes!("../assets/icon.rgba").to_vec(),
-                256,
-                256,
-            )?),
-            ..Default::default()
-        },
+    iced::application(
+        AudioPlayerApplication::title,
+        AudioPlayerApplication::update,
+        AudioPlayerApplication::view,
+    )
+    .subscription(AudioPlayerApplication::subscription)
+    .theme(AudioPlayerApplication::theme)
+    .window(window::Settings {
+        icon: Some(window::icon::from_rgba(
+            include_bytes!("../assets/icon.rgba").to_vec(),
+            256,
+            256,
+        )?),
         ..Default::default()
+    })
+    .run_with(|| {
+        AudioPlayerApplication::new(AudioPlayerFlags {
+            file_path: args.file,
+        })
     })?;
 
     Ok(())
