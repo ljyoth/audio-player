@@ -121,6 +121,7 @@ impl Application for AudioPlayerApplication {
         )]
         .draw_path(menu::DrawPath::Backdrop);
 
+		// TODO: requires https://github.com/iced-rs/iced/issues/36 to implement selectable text
         let track_description = container(lazy(self.player.current(), |_| {
             match self.player.current() {
                 Some(track) => {
@@ -189,7 +190,7 @@ impl Application for AudioPlayerApplication {
             .center_x()
             .align_y(Vertical::Bottom);
 
-        let play_pause_button = match self.player.playing() {
+        let play_pause_button = lazy(self.player.playing(), |playing| match playing {
             false => {
                 let play_svg = svg(svg::Handle::from_memory(include_bytes!(
                     "../assets/play.svg"
@@ -216,7 +217,7 @@ impl Application for AudioPlayerApplication {
                     .style(theme::Button::custom(PlayPauseButtonStyle))
                     .on_press(Message::Pause)
             }
-        };
+        });
         // let stop_button = button(text("Stop")).on_press(Message::Stop);
         let controls = container(
             row![play_pause_button

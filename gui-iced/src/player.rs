@@ -1,5 +1,10 @@
 use std::{
-    error::Error, fs::File, hash::Hash, io::BufReader, path::{Path, PathBuf}, time::Duration
+    error::Error,
+    fs::File,
+    hash::Hash,
+    io::BufReader,
+    path::{Path, PathBuf},
+    time::Duration,
 };
 
 use audio_player::{AudioPlayerError, TrackDetails};
@@ -60,6 +65,10 @@ impl AudioPlayer {
 
     pub(super) fn seek(&self, position: Duration) {
         self.player.controller().seek(position);
+    }
+
+    pub(super) fn running(&self) -> bool {
+        self.player.running()
     }
 }
 
