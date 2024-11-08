@@ -165,7 +165,7 @@ impl AudioPlayerApplication {
                         Some(cover) => {
                             // TODO: avoid clones
                             let handle = image::Handle::from_bytes(cover.data.clone());
-                            image::viewer(handle).height(Length::Fill).into()
+                            image::Image::new(handle).height(Length::Fill).into()
                         }
                         None => Element::from(Space::with_height(Length::Fill)),
                     };
