@@ -5,7 +5,7 @@ use audio_player::AudioPlayer;
 use clap::{ArgAction, Parser};
 use color_eyre::eyre::{eyre, Ok, Result};
 use ratatui::{
-    crossterm::event::{self, KeyCode, KeyEventKind},
+    crossterm::{self, event::{self, KeyCode, KeyEventKind}, ExecutableCommand},
     prelude::CrosstermBackend,
     widgets::{Gauge, Paragraph},
     Terminal,
@@ -30,15 +30,19 @@ fn main() -> Result<()> {
     let mut app = AudioPlayerApplication::new();
     app.open(args.file)?;
 
-    let backend = CrosstermBackend::new(stdout());
+    let mut backend = CrosstermBackend::new(stdout());
+    backend.execute(crossterm::event::EnableMouseCapture)?;
     let mut terminal = Terminal::with_options(
         backend,
         ratatui::TerminalOptions {
-            viewport: ratatui::Viewport::Inline(5),
+            // viewport: ratatui::Viewport::Fullscreen,
+            viewport: ratatui::Viewport::Inline(10),
         },
     )?;
     terminal.clear()?;
-    let result = app.run(terminal);
+    let result = app.run(&mut terminal);
+    // TODO: fix exit cleanup
+    // terminal.clear()?;
     ratatui::restore();
 
     // println!("File: {}", args.file.to_string_lossy());
