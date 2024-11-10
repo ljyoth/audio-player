@@ -12,8 +12,8 @@ use std::{
 
 use crate::{
     decoder::{self, DecodedTrack, DecoderError},
-    output::AudioOutputter,
-    resampler::{ResamplerError, SymphoniaResampler, SymphoniaResamplerBuffered},
+    output::{AudioOutputWrite, AudioOutputWriter},
+    resampler::{ResamplerError, SymphoniaResamplerBuffered},
     track::Track,
 };
 
@@ -175,7 +175,7 @@ impl AudioPlayerExecutor {
         let dropped_clone = dropped.clone();
         let handle = std::thread::spawn(move || {
             let run = move || -> Result<(), Box<dyn Error>> {
-                let mut output = AudioOutputter::new()?;
+                let mut output = AudioOutputWriter::new()?;
                 output.play()?;
                 while let Ok(mut track) = rx.recv() {
                     // TODO: handle `delay` and `padding`
