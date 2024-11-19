@@ -194,6 +194,14 @@ impl AudioPlayerExecutor {
                             Err(ResamplerError::InvalidCodecParameters) => None,
                             Err(err) => return Err(err)?,
                         }
+                        // match SymphoniaResampler::new(
+                        //     track.codec_params(),
+                        //     output.sample_rate(),
+                        // ) {
+                        //     Ok(r) => Some(r),
+                        //     Err(ResamplerError::InvalidCodecParameters) => None,
+                        //     Err(err) => return Err(err)?,
+                        // }
                     };
                     {
                         let mut state = controller.state.lock().unwrap();
@@ -221,14 +229,11 @@ impl AudioPlayerExecutor {
 
                         if let Ok(buffer) = track.next() {
                             if let Some(ref mut resampler) = resampler {
-                                resampler.queue(buffer.to_owned());
-                                while resampler
-                                    .resample()?
-                                    .map(|resampled| {
-                                        output.write(resampled);
-                                    })
-                                    .is_some()
-                                {}
+                                let mut samples = resampler.resample(buffer.to_owned())?;
+                                while let Some(sample) = samples.next() {
+                                    output.write(sample?);
+                                }
+                                // output.write(resampler.resample_buffer(buffer)?);
                             } else {
                                 output.write(buffer);
                             }

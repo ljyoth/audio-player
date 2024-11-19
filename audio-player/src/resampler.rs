@@ -7,7 +7,7 @@ use rubato::{
 };
 use symphonia::core::{
     audio::{AsAudioBufferRef, AudioBuffer, AudioBufferRef, Channels, Signal, SignalSpec},
-    codecs::{self, CodecParameters, CodecType},
+    codecs::{self, CodecParameters},
     conv::IntoSample,
     sample::Sample,
     units::Duration,
@@ -66,65 +66,69 @@ impl SymphoniaResamplerBuffered {
         })
     }
 
-    pub(super) fn queue(&mut self, buffer: AudioBufferRef) {
+    pub(super) fn resample(
+        &mut self,
+        buffer: AudioBufferRef,
+    ) -> Result<SymphoniaBufferedResamples, ResamplerError> {
         let mut b = AudioBuffer::new(buffer.capacity() as u64, *buffer.spec());
         buffer.convert(&mut b);
         self.queue.push_back(b);
-        //     match buffer {
-        //         AudioBufferRef::U8(ref buffer) => fill_f64_buffer_2(
-        //             buffer,
-        //             self.buffer_position,
-        //             &mut self.resampler.input_buffer,
-        //         ),
-        //         AudioBufferRef::U16(ref buffer) => fill_f64_buffer_2(
-        //             buffer,
-        //             self.buffer_position,
-        //             &mut self.resampler.input_buffer,
-        //         ),
-        //         AudioBufferRef::U24(ref buffer) => fill_f64_buffer_2(
-        //             buffer,
-        //             self.buffer_position,
-        //             &mut self.resampler.input_buffer,
-        //         ),
-        //         AudioBufferRef::U32(ref buffer) => fill_f64_buffer_2(
-        //             buffer,
-        //             self.buffer_position,
-        //             &mut self.resampler.input_buffer,
-        //         ),
-        //         AudioBufferRef::S8(ref buffer) => fill_f64_buffer_2(
-        //             buffer,
-        //             self.buffer_position,
-        //             &mut self.resampler.input_buffer,
-        //         ),
-        //         AudioBufferRef::S16(ref buffer) => fill_f64_buffer_2(
-        //             buffer,
-        //             self.buffer_position,
-        //             &mut self.resampler.input_buffer,
-        //         ),
-        //         AudioBufferRef::S24(ref buffer) => fill_f64_buffer_2(
-        //             buffer,
-        //             self.buffer_position,
-        //             &mut self.resampler.input_buffer,
-        //         ),
-        //         AudioBufferRef::S32(ref buffer) => fill_f64_buffer_2(
-        //             buffer,
-        //             self.buffer_position,
-        //             &mut self.resampler.input_buffer,
-        //         ),
-        //         AudioBufferRef::F32(ref buffer) => fill_f64_buffer_2(
-        //             buffer,
-        //             self.buffer_position,
-        //             &mut self.resampler.input_buffer,
-        //         ),
-        //         AudioBufferRef::F64(ref buffer) => fill_f64_buffer_2(
-        //             buffer,
-        //             self.buffer_position,
-        //             &mut self.resampler.input_buffer,
-        //         ),
-        //     };
+        Ok(SymphoniaBufferedResamples { resampler: self })
+        // match buffer {
+        //     AudioBufferRef::U8(ref buffer) => fill_f64_buffer_3(
+        //         buffer,
+        //         self.buffer_position,
+        //         &mut self.resampler.input_buffer,
+        //     ),
+        //     AudioBufferRef::U16(ref buffer) => fill_f64_buffer_3(
+        //         buffer,
+        //         self.buffer_position,
+        //         &mut self.resampler.input_buffer,
+        //     ),
+        //     AudioBufferRef::U24(ref buffer) => fill_f64_buffer_3(
+        //         buffer,
+        //         self.buffer_position,
+        //         &mut self.resampler.input_buffer,
+        //     ),
+        //     AudioBufferRef::U32(ref buffer) => fill_f64_buffer_3(
+        //         buffer,
+        //         self.buffer_position,
+        //         &mut self.resampler.input_buffer,
+        //     ),
+        //     AudioBufferRef::S8(ref buffer) => fill_f64_buffer_3(
+        //         buffer,
+        //         self.buffer_position,
+        //         &mut self.resampler.input_buffer,
+        //     ),
+        //     AudioBufferRef::S16(ref buffer) => fill_f64_buffer_3(
+        //         buffer,
+        //         self.buffer_position,
+        //         &mut self.resampler.input_buffer,
+        //     ),
+        //     AudioBufferRef::S24(ref buffer) => fill_f64_buffer_3(
+        //         buffer,
+        //         self.buffer_position,
+        //         &mut self.resampler.input_buffer,
+        //     ),
+        //     AudioBufferRef::S32(ref buffer) => fill_f64_buffer_3(
+        //         buffer,
+        //         self.buffer_position,
+        //         &mut self.resampler.input_buffer,
+        //     ),
+        //     AudioBufferRef::F32(ref buffer) => fill_f64_buffer_3(
+        //         buffer,
+        //         self.buffer_position,
+        //         &mut self.resampler.input_buffer,
+        //     ),
+        //     AudioBufferRef::F64(ref buffer) => fill_f64_buffer_3(
+        //         buffer,
+        //         self.buffer_position,
+        //         &mut self.resampler.input_buffer,
+        //     ),
+        // };
     }
 
-    pub(super) fn resample(&mut self) -> Result<Option<AudioBufferRef>, ResamplerError> {
+    fn resample_next(&mut self) -> Result<Option<AudioBufferRef>, ResamplerError> {
         assert!(self.resampler.input_buffer.len() > 0);
         println!(
             "len {} capacity {}",
@@ -157,13 +161,15 @@ impl SymphoniaResamplerBuffered {
     }
 }
 
-// impl <'a> Iterator for SymphoniaResamplerBuffered<'a> {
-//     type Item = AudioBufferRef<'a>;
+pub(super) struct SymphoniaBufferedResamples<'r> {
+    resampler: &'r mut SymphoniaResamplerBuffered,
+}
 
-//     fn next(&mut self) -> Option<Self::Item> {
-//         self.resample().ok().flatten()
-//     }
-// }
+impl<'r> SymphoniaBufferedResamples<'r> {
+    pub(super) fn next<'a>(&'a mut self) -> Option<Result<AudioBufferRef<'a>, ResamplerError>> {
+        self.resampler.resample_next().transpose()
+    }
+}
 
 pub(super) struct SymphoniaResampler {
     resampler: SincFixedIn<f64>,
@@ -180,6 +186,7 @@ impl SymphoniaResampler {
         channels: Channels,
         output_sample_rate: u32,
     ) -> Result<Self, ResamplerError> {
+        debug!("SymphoniaResampler::new_inner: chunk_size {chunk_size}");
         let resampler = SincFixedIn::new(
             output_sample_rate as f64 / input_sample_rate as f64,
             2.0,
