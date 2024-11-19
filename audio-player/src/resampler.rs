@@ -1,20 +1,21 @@
 use core::panic;
-use std::{borrow::Cow, collections::VecDeque};
+use std::{borrow::Cow, collections::VecDeque, marker::PhantomData};
 
+use cpal::Sample;
 use rubato::{
     ResampleError, Resampler, ResamplerConstructionError, SincFixedIn, SincInterpolationParameters,
     SincInterpolationType, WindowFunction,
 };
 use symphonia::core::{
-    audio::{AsAudioBufferRef, AudioBuffer, AudioBufferRef, Channels, Signal, SignalSpec},
+    audio::{AudioBuffer, AudioBufferRef, Channels, Signal, SignalSpec},
     codecs::{self, CodecParameters},
     conv::IntoSample,
-    sample::Sample,
+    sample,
     units::Duration,
 };
 use tracing::{debug, info};
 
-use crate::{buffer::SampleBuffer, output};
+use crate::buffer::SampleBuffer;
 
 #[derive(Debug, thiserror::Error)]
 pub(super) enum ResamplerError {
@@ -26,14 +27,15 @@ pub(super) enum ResamplerError {
     RubatoResample(#[from] ResampleError),
 }
 
-pub(super) struct SymphoniaResamplerBuffered {
+pub(super) struct SymphoniaResamplerBuffered<T: Sample> {
     resampler: SymphoniaResampler,
     // queue: VecDeque<f64>,
     queue: VecDeque<AudioBuffer<f64>>,
     buffer_position: usize,
+    phantom: PhantomData<T>,
 }
 
-impl SymphoniaResamplerBuffered {
+impl<T: Sample> SymphoniaResamplerBuffered<T> {
     const DEFAULT_CHUNK_SIZE: usize = 1024;
 
     pub(super) fn new(
@@ -65,13 +67,14 @@ impl SymphoniaResamplerBuffered {
             )?,
             queue: VecDeque::new(),
             buffer_position: 0,
+            phantom: PhantomData,
         })
     }
 
     pub(super) fn resample(
         &mut self,
         buffer: AudioBufferRef,
-    ) -> Result<SymphoniaBufferedResamples, ResamplerError> {
+    ) -> Result<SymphoniaBufferedResamples<T>, ResamplerError> {
         // TODO: reduce allocations
         let mut b = AudioBuffer::new(buffer.capacity() as u64, *buffer.spec());
         buffer.convert(&mut b);
@@ -131,7 +134,7 @@ impl SymphoniaResamplerBuffered {
         // };
     }
 
-    fn resample_next(&mut self) -> Result<Option<&SampleBuffer>, ResamplerError> {
+    fn resample_next(&mut self) -> Result<Option<&SampleBuffer<f64>>, ResamplerError> {
         assert!(self.resampler.input_buffer.len() > 0);
         println!(
             "len {} capacity {}",
@@ -164,12 +167,12 @@ impl SymphoniaResamplerBuffered {
     }
 }
 
-pub(super) struct SymphoniaBufferedResamples<'r> {
-    resampler: &'r mut SymphoniaResamplerBuffered,
+pub(super) struct SymphoniaBufferedResamples<'r, T: Sample> {
+    resampler: &'r mut SymphoniaResamplerBuffered<T>,
 }
 
-impl<'r> SymphoniaBufferedResamples<'r> {
-    pub(super) fn next<'a>(&'a mut self) -> Option<Result<&SampleBuffer, ResamplerError>> {
+impl<'r, T: Sample> SymphoniaBufferedResamples<'r, T> {
+    pub(super) fn next<'a>(&'a mut self) -> Option<Result<&SampleBuffer<f64>, ResamplerError>> {
         self.resampler.resample_next().transpose()
     }
 }
@@ -177,7 +180,7 @@ impl<'r> SymphoniaBufferedResamples<'r> {
 pub(super) struct SymphoniaResampler {
     resampler: SincFixedIn<f64>,
     input_buffer: Vec<Vec<f64>>,
-    output_buffer: SampleBuffer,
+    output_buffer: SampleBuffer<f64>,
     output_buffer_frames: usize,
     output_audio_buffer: AudioBuffer<f64>,
     interleaved: Vec<f64>,
@@ -274,7 +277,7 @@ impl SymphoniaResampler {
         )
     }
 
-    fn resample_inner(&mut self) -> Result<&SampleBuffer, ResamplerError> {
+    fn resample_inner(&mut self) -> Result<&SampleBuffer<f64>, ResamplerError> {
         // need to resize output_buffer to match `self.resampler` expected size
         self.output_buffer
             .resize(self.output_buffer.channels(), self.output_buffer_frames);
@@ -308,7 +311,7 @@ impl SymphoniaResampler {
     pub(super) fn resample_buffer(
         &mut self,
         buffer: AudioBufferRef,
-    ) -> Result<&SampleBuffer, ResamplerError> {
+    ) -> Result<&SampleBuffer<f64>, ResamplerError> {
         match buffer {
             AudioBufferRef::U8(ref buffer) => fill_f64_buffer(buffer, &mut self.input_buffer),
             AudioBufferRef::U16(ref buffer) => fill_f64_buffer(buffer, &mut self.input_buffer),
@@ -335,7 +338,24 @@ impl SymphoniaResampler {
     }
 }
 
-fn fill_f64_buffer<S: Sample + IntoSample<f64>>(
+macro_rules! match_audio_buffer_ref {
+    (|$buffer:ident| $expression:expr) => {
+        match $writer {
+            AudioBufferRef::U8($buffer) => $expression,
+            AudioBufferRef::U16($buffer) => $expression,
+            AudioBufferRef::U24($buffer) => $expression,
+            AudioBufferRef::U32($buffer) => $expression,
+            AudioBufferRef::S8($buffer) => $expression,
+            AudioBufferRef::S16($buffer) => $expression,
+            AudioBufferRef::S24($buffer) => $expression,
+            AudioBufferRef::S32($buffer) => $expression,
+            AudioBufferRef::F32($buffer) => $expression,
+            AudioBufferRef::F64($buffer) => $expression,
+        }
+    };
+}
+
+fn fill_f64_buffer<S: sample::Sample + IntoSample<f64>>(
     buffer: &Cow<'_, AudioBuffer<S>>,
     f64_buffer: &mut Vec<Vec<f64>>,
 ) {
@@ -349,7 +369,7 @@ fn fill_f64_buffer<S: Sample + IntoSample<f64>>(
 }
 
 /// `end`: Exclusive
-fn fill_f64_buffer_2<S: Sample + IntoSample<f64>>(
+fn fill_f64_buffer_2<S: sample::Sample + IntoSample<f64>>(
     buffer: &Cow<'_, AudioBuffer<S>>,
     start: usize,
     f64_buffer: &mut Vec<Vec<f64>>,
@@ -371,7 +391,7 @@ fn fill_f64_buffer_2<S: Sample + IntoSample<f64>>(
 }
 
 /// `end`: Exclusive
-fn fill_f64_buffer_21<S: Sample + IntoSample<f64>>(
+fn fill_f64_buffer_21<S: sample::Sample + IntoSample<f64>>(
     buffer: &AudioBuffer<S>,
     start: usize,
     f64_buffer: &mut Vec<Vec<f64>>,
@@ -402,7 +422,7 @@ fn fill_f64_buffer_21<S: Sample + IntoSample<f64>>(
     pushed / f64_buffer.len() + start
 }
 
-fn fill_f64_buffer_3<S: Sample + IntoSample<f64>>(
+fn fill_f64_buffer_3<S: sample::Sample + IntoSample<f64>>(
     buffer: &Cow<'_, AudioBuffer<S>>,
     f64_buffer: &mut Vec<VecDeque<f64>>,
 ) {
