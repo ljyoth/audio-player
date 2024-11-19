@@ -214,10 +214,8 @@ impl<T: SizedSample + cpal::FromSample<f64> + ConvertibleSample + Send + 'static
     for CpalAudioOutput<T>
 {
     fn write(&mut self, samples: &SampleBuffer) {
-        for frame in 0..samples.frames() {
-            for samples in samples.channel_samples() {
-                self.tx.send(samples[frame].to_sample()).unwrap();
-            }
+        for sample in samples.interleaved() {
+            self.tx.send(sample.to_sample()).unwrap();
         }
     }
 

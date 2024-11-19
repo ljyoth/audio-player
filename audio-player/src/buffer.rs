@@ -54,6 +54,14 @@ impl SampleBuffer {
     pub(super) fn samples_mut(&mut self, channel: usize) -> Option<&mut [f64]> {
         self.buffer.get_mut(channel).map(|b| b.as_mut())
     }
+
+    pub(super) fn interleaved(&self) -> impl Iterator<Item = f64> + '_ {
+        SampleBufferInterleavedIter {
+            buffer: self,
+            channel: 0,
+            frame: 0,
+        }
+    }
 }
 
 impl AsRef<[Vec<f64>]> for SampleBuffer {
@@ -65,5 +73,27 @@ impl AsRef<[Vec<f64>]> for SampleBuffer {
 impl AsMut<[Vec<f64>]> for SampleBuffer {
     fn as_mut(&mut self) -> &mut [Vec<f64>] {
         &mut self.buffer
+    }
+}
+
+pub(super) struct SampleBufferInterleavedIter<'b> {
+    buffer: &'b SampleBuffer,
+    channel: usize,
+    frame: usize,
+}
+
+impl<'b> Iterator for SampleBufferInterleavedIter<'b> {
+    type Item = f64;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.frame >= self.buffer.frames() {
+            return None;
+        }
+        let item = Some(self.buffer.buffer[self.channel][self.frame]);
+        self.channel = (self.channel + 1) % self.buffer.channels();
+        if self.channel == 0 {
+            self.frame += 1;
+        }
+        item
     }
 }
