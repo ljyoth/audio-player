@@ -71,6 +71,7 @@ impl DecodedTrack {
         self.decoder.codec_params()
     }
 
+    // TODO: return SampleBuffer
     pub(super) fn next(&mut self) -> Result<AudioBufferRef, DecoderError> {
         let packet = match self.next_packet.take() {
             Some(packet) => {

@@ -14,6 +14,8 @@ use symphonia::core::{
 };
 use tracing::{debug, info};
 
+use crate::{buffer::SampleBuffer, output};
+
 #[derive(Debug, thiserror::Error)]
 pub(super) enum ResamplerError {
     #[error("Invalid CodecParameters")]
@@ -70,6 +72,7 @@ impl SymphoniaResamplerBuffered {
         &mut self,
         buffer: AudioBufferRef,
     ) -> Result<SymphoniaBufferedResamples, ResamplerError> {
+        // TODO: reduce allocations
         let mut b = AudioBuffer::new(buffer.capacity() as u64, *buffer.spec());
         buffer.convert(&mut b);
         self.queue.push_back(b);
@@ -128,7 +131,7 @@ impl SymphoniaResamplerBuffered {
         // };
     }
 
-    fn resample_next(&mut self) -> Result<Option<AudioBufferRef>, ResamplerError> {
+    fn resample_next(&mut self) -> Result<Option<&SampleBuffer>, ResamplerError> {
         assert!(self.resampler.input_buffer.len() > 0);
         println!(
             "len {} capacity {}",
@@ -166,7 +169,7 @@ pub(super) struct SymphoniaBufferedResamples<'r> {
 }
 
 impl<'r> SymphoniaBufferedResamples<'r> {
-    pub(super) fn next<'a>(&'a mut self) -> Option<Result<AudioBufferRef<'a>, ResamplerError>> {
+    pub(super) fn next<'a>(&'a mut self) -> Option<Result<&SampleBuffer, ResamplerError>> {
         self.resampler.resample_next().transpose()
     }
 }
@@ -174,7 +177,8 @@ impl<'r> SymphoniaBufferedResamples<'r> {
 pub(super) struct SymphoniaResampler {
     resampler: SincFixedIn<f64>,
     input_buffer: Vec<Vec<f64>>,
-    output_buffer: Vec<Vec<f64>>,
+    output_buffer: SampleBuffer,
+    output_buffer_frames: usize,
     output_audio_buffer: AudioBuffer<f64>,
     interleaved: Vec<f64>,
 }
@@ -212,11 +216,13 @@ impl SymphoniaResampler {
             .map(|_| Vec::with_capacity(chunk_size))
             .collect();
         // Need to pre-fill or resampler will fail
-        let output_buffer = Resampler::output_buffer_allocate(&resampler, true);
-        let interleaved = Vec::with_capacity(output_buffer[0].len() * output_buffer.len());
+        let output_buffer = resampler.output_buffer_allocate(true);
+        let output_buffer = SampleBuffer::with_buffer(output_buffer);
+        let output_buffer_frames = output_buffer.frames();
+        let interleaved = Vec::with_capacity(output_buffer.channels() * output_buffer.frames());
 
         let output_audio_buffer = AudioBuffer::new(
-            output_buffer[0].len() as Duration,
+            output_buffer.frames() as Duration,
             SignalSpec {
                 rate: output_sample_rate,
                 channels,
@@ -224,7 +230,7 @@ impl SymphoniaResampler {
         );
         info!(
             "output_buffer_len: {} interleaved_length: {} output_buffer_capacity: {} output_buffer_frames: {}\n",
-            output_buffer[0].len(),
+            output_buffer.frames(),
             interleaved.len(),
             output_audio_buffer.capacity(),
             output_audio_buffer.frames()
@@ -233,6 +239,7 @@ impl SymphoniaResampler {
             resampler,
             input_buffer,
             output_buffer,
+            output_buffer_frames,
             output_audio_buffer,
             interleaved,
         })
@@ -267,31 +274,26 @@ impl SymphoniaResampler {
         )
     }
 
-    fn resample_inner(&mut self) -> Result<AudioBufferRef, ResamplerError> {
-        let (input_frames, output_frames) = Resampler::process_into_buffer(
-            &mut self.resampler,
+    fn resample_inner(&mut self) -> Result<&SampleBuffer, ResamplerError> {
+        // need to resize output_buffer to match `self.resampler` expected size
+        self.output_buffer
+            .resize(self.output_buffer.channels(), self.output_buffer_frames);
+        let (input_frames, output_frames) = self.resampler.process_into_buffer(
             &self.input_buffer,
-            &mut self.output_buffer,
+            self.output_buffer.as_mut(),
             None,
         )?;
+
+        // input_frames should always be everything
+        assert_eq!(input_frames, self.input_buffer[0].len());
 
         // TODO: should move this outside this function, but lifetime issue so deal with later
         self.input_buffer
             .iter_mut()
             .for_each(|buffer| buffer.clear());
 
-        self.output_audio_buffer.clear();
-        self.output_audio_buffer
-            .render_reserved(Some(output_frames));
-        (0..self.output_buffer.len()).for_each(|c| {
-            self.output_audio_buffer
-                .chan_mut(c)
-                .iter_mut()
-                .zip(self.output_buffer[c][0..output_frames].iter())
-                .for_each(|(s, &f)| {
-                    *s = f;
-                })
-        });
+        self.output_buffer
+            .resize(self.output_buffer.channels(), output_frames);
 
         debug!(
             "input: {} output: {} output_buffer_capacity: {} output_buffer_frames: {}",
@@ -300,13 +302,13 @@ impl SymphoniaResampler {
             self.output_audio_buffer.capacity(),
             self.output_audio_buffer.frames()
         );
-        Ok(self.output_audio_buffer.as_audio_buffer_ref())
+        Ok(&self.output_buffer)
     }
 
     pub(super) fn resample_buffer(
         &mut self,
         buffer: AudioBufferRef,
-    ) -> Result<AudioBufferRef, ResamplerError> {
+    ) -> Result<&SampleBuffer, ResamplerError> {
         match buffer {
             AudioBufferRef::U8(ref buffer) => fill_f64_buffer(buffer, &mut self.input_buffer),
             AudioBufferRef::U16(ref buffer) => fill_f64_buffer(buffer, &mut self.input_buffer),

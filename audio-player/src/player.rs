@@ -235,7 +235,7 @@ impl AudioPlayerExecutor {
                                 }
                                 // output.write(resampler.resample_buffer(buffer)?);
                             } else {
-                                output.write(buffer);
+                                output.write_symphonia(buffer);
                             }
                         } else {
                             break;
