@@ -1,17 +1,20 @@
 use core::panic;
-use std::collections::VecDeque;
+use std::{
+    cmp::{max, min},
+    collections::VecDeque,
+};
 
 use rubato::{
     ResampleError, Resampler, ResamplerConstructionError, SincFixedIn, SincInterpolationParameters,
     SincInterpolationType, WindowFunction,
 };
 use symphonia::core::{
-    audio::Channels,
+    audio::{AudioBuffer, AudioBufferRef, Channels, Signal},
     codecs::{self, CodecParameters},
 };
-use tracing::{debug, info};
+use tracing::debug;
 
-use crate::buffer::SampleBuffer;
+use crate::buffer::{self, SampleBuf, SampleBuffer};
 
 #[derive(Debug, thiserror::Error)]
 pub(super) enum ResamplerError {
@@ -25,8 +28,7 @@ pub(super) enum ResamplerError {
 
 pub(super) struct RubatoResamplerBuffered {
     resampler: RubatoResampler,
-    queue: VecDeque<SampleBuffer>,
-    buffer_position: usize,
+    buffer: ResamplerBuffer,
 }
 
 impl RubatoResamplerBuffered {
@@ -59,8 +61,7 @@ impl RubatoResamplerBuffered {
                 channels,
                 output_sample_rate,
             )?,
-            queue: VecDeque::new(),
-            buffer_position: 0,
+            buffer: ResamplerBuffer::new(channels.count(), chunk_size),
         })
     }
 
@@ -68,57 +69,64 @@ impl RubatoResamplerBuffered {
         &mut self,
         buffer: SampleBuffer,
     ) -> Result<BufferedResamples, ResamplerError> {
-        self.queue.push_back(buffer);
-        Ok(BufferedResamples { resampler: self })
+        self.buffer.clear();
+        match buffer {
+            SampleBuffer::Buf(buffer) => self.resample_buf(&buffer),
+            SampleBuffer::BufRef(buffer) => self.resample_buf(buffer),
+            SampleBuffer::Symphonia(buffer) => self.resample_symphonia(buffer),
+        }
     }
 
-    fn resample_next(&mut self) -> Result<Option<&SampleBuffer>, ResamplerError> {
-        assert!(self.resampler.input_buffer.len() > 0);
-        println!(
-            "len {} capacity {}",
-            self.resampler.input_buffer[0].len(),
-            self.resampler.input_buffer[0].capacity()
-        );
-        while self.resampler.input_buffer[0].len() < self.resampler.input_buffer[0].capacity() {
-            println!("len: {:?}", self.queue.len());
-            let buffer = match self.queue.front() {
-                Some(buffer) => buffer,
-                None => return Ok(None),
-            };
-            self.buffer_position = fill_f64_buffer_22(
-                buffer,
-                self.buffer_position,
-                &mut self.resampler.input_buffer,
-            );
-            println!(
-                "position {} frames {}",
-                self.buffer_position,
-                buffer.frames()
-            );
-            if self.buffer_position >= buffer.frames() {
-                self.queue.pop_front();
-                self.buffer_position = 0;
-            }
-        }
-        let output_buffer = self.resampler.resample_inner()?;
-        Ok(Some(output_buffer))
+    fn resample_buf<'r>(
+        &'r mut self,
+        buffer: &SampleBuf,
+    ) -> Result<BufferedResamples<'r>, ResamplerError> {
+        self.buffer.fill(buffer.as_ref());
+        Ok(BufferedResamples {
+            resampler: &mut self.resampler,
+            buffer_iter: self.buffer.iter(),
+        })
+    }
+
+    fn resample_symphonia(
+        &mut self,
+        buffer: AudioBufferRef,
+    ) -> Result<BufferedResamples, ResamplerError> {
+        todo!();
+        Ok(BufferedResamples {
+            resampler: &mut self.resampler,
+            buffer_iter: self.buffer.iter(),
+        })
     }
 }
 
 pub(super) struct BufferedResamples<'r> {
-    resampler: &'r mut RubatoResamplerBuffered,
+    resampler: &'r mut RubatoResampler,
+    buffer_iter: ResamplerBufferIter<'r>,
 }
 
 impl<'r> BufferedResamples<'r> {
-    pub(super) fn next<'a>(&'a mut self) -> Option<Result<&SampleBuffer, ResamplerError>> {
-        self.resampler.resample_next().transpose()
+    pub(super) fn next<'a>(&'a mut self) -> Option<Result<&SampleBuf, ResamplerError>> {
+        match self.buffer_iter.next() {
+            Some(buffer) => Some(self.resampler.resample_slice(buffer, buffer[0].len())),
+            None => None,
+        }
+    }
+
+    // fn clear(&mut self) {
+    //     self.buffer_iter.clear();
+    // }
+}
+
+impl<'r> Drop for BufferedResamples<'r> {
+    fn drop(&mut self) {
+        // todo!("clear buffer")
     }
 }
 
 pub(super) struct RubatoResampler {
     resampler: SincFixedIn<f64>,
-    input_buffer: Vec<Vec<f64>>,
-    output_buffer: SampleBuffer,
+    output_buffer: SampleBuf,
     output_buffer_frames: usize,
 }
 
@@ -151,17 +159,13 @@ impl RubatoResampler {
         //     channels.count(),
         // )?;
 
-        let input_buffer = (0..channels.count())
-            .map(|_| Vec::with_capacity(chunk_size))
-            .collect();
         // Need to pre-fill or resampler will fail
         let output_buffer = resampler.output_buffer_allocate(true);
-        let output_buffer = SampleBuffer::with_buffer(output_buffer);
+        let output_buffer = SampleBuf::with_buffer(output_buffer);
         let output_buffer_frames = output_buffer.frames();
 
         Ok(Self {
             resampler,
-            input_buffer,
             output_buffer,
             output_buffer_frames,
         })
@@ -183,23 +187,50 @@ impl RubatoResampler {
         Self::new_inner(input_sample_rate, chunk_size, channels, output_sample_rate)
     }
 
-    fn resample_inner(&mut self) -> Result<&SampleBuffer, ResamplerError> {
+    pub(super) fn resample(&mut self, buffer: &SampleBuffer) -> Result<&SampleBuf, ResamplerError> {
+        match buffer {
+            SampleBuffer::Buf(buffer) => self.resample_buf(&buffer),
+            SampleBuffer::BufRef(buffer) => self.resample_buf(buffer),
+            SampleBuffer::Symphonia(buffer) => self.resample_symphonia(buffer.clone()),
+        }
+    }
+
+    fn resample_buf(&mut self, buffer: &SampleBuf) -> Result<&SampleBuf, ResamplerError> {
+        self.resample_slice(buffer.as_ref(), buffer.frames())
+    }
+
+    fn resample_symphonia(&mut self, buffer: AudioBufferRef) -> Result<&SampleBuf, ResamplerError> {
+        match buffer {
+            AudioBufferRef::U8(cow) => todo!(),
+            AudioBufferRef::U16(cow) => todo!(),
+            AudioBufferRef::U24(cow) => todo!(),
+            AudioBufferRef::U32(cow) => todo!(),
+            AudioBufferRef::S8(cow) => todo!(),
+            AudioBufferRef::S16(cow) => todo!(),
+            AudioBufferRef::S24(cow) => todo!(),
+            AudioBufferRef::S32(cow) => todo!(),
+            AudioBufferRef::F32(cow) => todo!(),
+            AudioBufferRef::F64(buffer) => {
+                self.resample_slice(buffer.planes().planes(), buffer.frames())
+            }
+        }
+    }
+
+    fn resample_slice<B: AsRef<[f64]>>(
+        &mut self,
+        buffer: &[B],
+        frames: usize,
+    ) -> Result<&SampleBuf, ResamplerError> {
+        self.resampler.set_chunk_size(frames)?;
         // need to resize output_buffer to match `self.resampler` expected size
         self.output_buffer
             .resize(self.output_buffer.channels(), self.output_buffer_frames);
-        let (input_frames, output_frames) = self.resampler.process_into_buffer(
-            &self.input_buffer,
-            self.output_buffer.as_mut(),
-            None,
-        )?;
+        let (input_frames, output_frames) =
+            self.resampler
+                .process_into_buffer(buffer, self.output_buffer.as_mut(), None)?;
 
         // input_frames should always be everything
-        assert_eq!(input_frames, self.input_buffer[0].len());
-
-        // TODO: should move this outside this function, but lifetime issue so deal with later
-        self.input_buffer
-            .iter_mut()
-            .for_each(|buffer| buffer.clear());
+        // assert_eq!(input_frames, buffer[0].len());
 
         self.output_buffer
             .resize(self.output_buffer.channels(), output_frames);
@@ -209,35 +240,130 @@ impl RubatoResampler {
     }
 }
 
-/// `end`: Exclusive
-fn fill_f64_buffer_22(
-    buffer: &SampleBuffer,
-    start: usize,
-    f64_buffer: &mut Vec<Vec<f64>>,
-) -> usize {
-    let mut pushed = 0;
-    (0..f64_buffer.len()).for_each(|c| {
-        let to_take = f64_buffer[c].capacity() - f64_buffer[c].len();
-        println!(
-            "to_take {} cap {} len {} ",
-            to_take,
-            f64_buffer[c].capacity(),
-            f64_buffer[c].len()
-        );
-        buffer
-            .samples(c)
-            .unwrap()
-            .iter()
-            .skip(start)
-            .take(to_take)
-            .for_each(|&s| {
-                f64_buffer[c].push(s);
-                pushed += 1;
-            });
-        println!("pushed: {} cap: {}", pushed, f64_buffer[0].capacity());
-        if pushed == 0 {
-            panic!()
+struct ResamplerBuffer {
+    buffers: Vec<Vec<Vec<f64>>>,
+    current_buffer: usize,
+    channels: usize,
+    frames: usize,
+}
+
+impl ResamplerBuffer {
+    fn new(channels: usize, frames: usize) -> Self {
+        Self {
+            buffers: vec![],
+            current_buffer: 0,
+            channels,
+            frames,
         }
-    });
-    pushed / f64_buffer.len() + start
+    }
+
+    fn add_buffer(&mut self) {
+        self.buffers
+            .push((0..self.channels).map(|c| Vec::with_capacity(c)).collect());
+    }
+
+    fn fill(&mut self, input: &[Vec<f64>]) {
+        assert_eq!(self.channels, input.len());
+        println!(
+            "fill buffers: {} {}",
+            self.available_all(),
+            self.buffers.len()
+        );
+        while self.available_all() < input[0].len() {
+            self.add_buffer();
+        }
+        let mut current_buffer = self.current_buffer;
+        for channel in 0..self.channels {
+            current_buffer = self.current_buffer;
+            let mut input_position = 0;
+            while input_position < input[channel].len() {
+                let next_position = min(
+                    input[channel].len(),
+                    input_position + self.available(current_buffer, channel),
+                );
+                // println!(
+                //     "position: {} available: {} next_position: {} current_buffer: {} current_len: {}",
+                //     input_position,
+                //     self.available(current_buffer, channel),
+                //     next_position,
+                //     current_buffer,
+                //     self.buffers[current_buffer][channel].len()
+                // );
+                self.buffers[current_buffer][channel]
+                    .extend_from_slice(&input[channel][input_position..next_position]);
+
+                if self.available(current_buffer, channel) == 0 {
+                    current_buffer = self.next_buffer(current_buffer);
+                }
+                input_position = next_position
+            }
+        }
+        self.current_buffer = current_buffer;
+    }
+
+    fn clear(&mut self) {
+        let to_clear = !self.buffers.is_empty() && self.available(self.current_buffer, 0) == 0;
+        for (i, buffer) in self.buffers.iter_mut().enumerate() {
+            if i == self.current_buffer && !to_clear {
+                continue;
+            }
+            for channel in buffer {
+                channel.clear();
+            }
+        }
+    }
+
+    fn available_all(&self) -> usize {
+        if self.buffers.is_empty() {
+            return 0;
+        }
+        (self.buffers.len() - 1) * self.frames + self.available(self.current_buffer, 0)
+    }
+
+    fn available(&self, buffer_index: usize, channel: usize) -> usize {
+        self.frames - self.buffers[buffer_index][channel].len()
+    }
+
+    fn next_buffer(&self, buffer_index: usize) -> usize {
+        (buffer_index + 1) % self.buffers.len()
+    }
+
+    fn iter(&self) -> ResamplerBufferIter {
+        let mut iter_pos = self.next_buffer(self.current_buffer);
+        while self.available(iter_pos, 0) == self.frames {
+            iter_pos = self.next_buffer(iter_pos)
+        }
+        ResamplerBufferIter {
+            buffer: self,
+            iter_pos: Some(iter_pos),
+        }
+    }
+}
+
+struct ResamplerBufferIter<'b> {
+    buffer: &'b ResamplerBuffer,
+    iter_pos: Option<usize>,
+}
+
+impl<'b> Iterator for ResamplerBufferIter<'b> {
+    type Item = &'b [Vec<f64>];
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let iter_pos = match self.iter_pos {
+            Some(iter_pos) => iter_pos,
+            None => return None,
+        };
+        let next_iter_pos = if iter_pos == self.buffer.current_buffer {
+            if self.buffer.available(iter_pos, 0) > 0 {
+                return None;
+            } else {
+                None
+            }
+        } else {
+            Some(self.buffer.next_buffer(iter_pos))
+        };
+        let item = &self.buffer.buffers[iter_pos];
+        self.iter_pos = next_iter_pos;
+        Some(item)
+    }
 }

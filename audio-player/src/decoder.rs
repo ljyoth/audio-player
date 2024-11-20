@@ -71,7 +71,6 @@ impl DecodedTrack {
         self.decoder.codec_params()
     }
 
-    // TODO: return SampleBuffer
     pub(super) fn next(&mut self) -> Result<SampleBuffer, DecoderError> {
         let packet = match self.next_packet.take() {
             Some(packet) => {
@@ -103,7 +102,9 @@ impl DecodedTrack {
             AudioBufferRef::F32(buffer) => buffer.into(),
             AudioBufferRef::F64(buffer) => buffer.into(),
         };
-        Ok(decoded)
+        Ok(SampleBuffer::Buf(decoded))
+        // let decoded = self.decoder.decode(&packet)?;
+        // Ok(SampleBuffer::Symphonia(decoded))
     }
 
     fn next_packet(&mut self) -> Result<Packet, DecoderError> {
