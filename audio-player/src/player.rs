@@ -11,7 +11,11 @@ use std::{
 };
 
 use crate::{
-    buffer::SampleBuffer, decoder::{self, DecodedTrack, DecoderError}, output::{AudioOutputWrite, AudioOutputWriter}, resampler::{ResamplerError, RubatoResamplerBuffered}, track::Track
+    buffer::SampleBuffer,
+    decoder::{self, DecodedTrack, DecoderError},
+    output::{AudioOutputWrite, AudioOutputWriter},
+    resampler::{ResamplerError, RubatoResamplerBuffered},
+    track::Track,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -227,12 +231,9 @@ impl AudioPlayerExecutor {
                         if let Ok(buffer) = track.next() {
                             if let Some(ref mut resampler) = resampler {
                                 let mut samples = resampler.resample(buffer)?;
-                                let mut count = 0;
                                 while let Some(sample) = samples.next() {
-                                    count += 1;
                                     output.write(&SampleBuffer::BufRef(sample?));
                                 }
-                                // println!("{count}");
                                 // output.write(resampler.resample_buffer(buffer)?);
                             } else {
                                 output.write(&buffer);

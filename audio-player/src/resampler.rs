@@ -283,11 +283,11 @@ impl ResamplerBuffer {
 
     fn fill<B: AsSlice<f64>>(&mut self, input: &[B]) {
         assert_eq!(self.channels, input.len());
-        // println!(
-        //     "fill buffers: {} {}",
-        //     self.available_all(),
-        //     self.buffers.len()
-        // );
+        debug!(
+            "fill: available: {} buffers: {}",
+            self.available_all(),
+            self.buffers.len()
+        );
         while self.available_all() < input[0].as_slice().len() {
             self.add_buffer();
         }
@@ -300,14 +300,14 @@ impl ResamplerBuffer {
                     input[channel].as_slice().len(),
                     input_position + self.available(current_buffer, channel),
                 );
-                // println!(
-                //     "position: {} available: {} next_position: {} current_buffer: {} current_len: {}",
-                //     input_position,
-                //     self.available(current_buffer, channel),
-                //     next_position,
-                //     current_buffer,
-                //     self.buffers[current_buffer][channel].len()
-                // );
+                debug!(
+                    "position: {} available: {} next_position: {} current_buffer: {} current_len: {}",
+                    input_position,
+                    self.available(current_buffer, channel),
+                    next_position,
+                    current_buffer,
+                    self.buffers[current_buffer][channel].len()
+                );
                 self.buffers[current_buffer][channel]
                     .extend_from_slice(&input[channel].as_slice()[input_position..next_position]);
 
