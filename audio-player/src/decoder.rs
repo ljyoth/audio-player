@@ -90,21 +90,21 @@ impl DecodedTrack {
             }
         }
 
-        let decoded = match self.decoder.decode(&packet)? {
-            AudioBufferRef::U8(buffer) => buffer.into(),
-            AudioBufferRef::U16(buffer) => buffer.into(),
-            AudioBufferRef::U24(buffer) => buffer.into(),
-            AudioBufferRef::U32(buffer) => buffer.into(),
-            AudioBufferRef::S8(buffer) => buffer.into(),
-            AudioBufferRef::S16(buffer) => buffer.into(),
-            AudioBufferRef::S24(buffer) => buffer.into(),
-            AudioBufferRef::S32(buffer) => buffer.into(),
-            AudioBufferRef::F32(buffer) => buffer.into(),
-            AudioBufferRef::F64(buffer) => buffer.into(),
-        };
-        Ok(SampleBuffer::Buf(decoded))
-        // let decoded = self.decoder.decode(&packet)?;
-        // Ok(SampleBuffer::Symphonia(decoded))
+        // let decoded = match self.decoder.decode(&packet)? {
+        //     AudioBufferRef::U8(buffer) => buffer.into(),
+        //     AudioBufferRef::U16(buffer) => buffer.into(),
+        //     AudioBufferRef::U24(buffer) => buffer.into(),
+        //     AudioBufferRef::U32(buffer) => buffer.into(),
+        //     AudioBufferRef::S8(buffer) => buffer.into(),
+        //     AudioBufferRef::S16(buffer) => buffer.into(),
+        //     AudioBufferRef::S24(buffer) => buffer.into(),
+        //     AudioBufferRef::S32(buffer) => buffer.into(),
+        //     AudioBufferRef::F32(buffer) => buffer.into(),
+        //     AudioBufferRef::F64(buffer) => buffer.into(),
+        // };
+        // Ok(SampleBuffer::Buf(decoded))
+        let decoded = self.decoder.decode(&packet)?;
+        Ok(SampleBuffer::Symphonia(decoded))
     }
 
     fn next_packet(&mut self) -> Result<Packet, DecoderError> {

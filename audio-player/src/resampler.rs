@@ -1,8 +1,4 @@
-use core::panic;
-use std::{
-    cmp::{max, min},
-    collections::VecDeque,
-};
+use std::{borrow::Cow, cmp::min};
 
 use rubato::{
     ResampleError, Resampler, ResamplerConstructionError, SincFixedIn, SincInterpolationParameters,
@@ -14,7 +10,7 @@ use symphonia::core::{
 };
 use tracing::debug;
 
-use crate::buffer::{self, SampleBuf, SampleBuffer};
+use crate::buffer::{SampleBuf, SampleBuffer};
 
 #[derive(Debug, thiserror::Error)]
 pub(super) enum ResamplerError {
@@ -26,9 +22,30 @@ pub(super) enum ResamplerError {
     RubatoResample(#[from] ResampleError),
 }
 
+macro_rules! match_symphonia_buffer {
+    (|$buffer:ident| { 
+       f64 => $f64:expr,
+       _ => $default:expr
+    }) => {
+        match $buffer {
+            AudioBufferRef::U8($buffer) => $default,
+            AudioBufferRef::U16($buffer) => $default,
+            AudioBufferRef::U24($buffer) => $default,
+            AudioBufferRef::U32($buffer) => $default,
+            AudioBufferRef::S8($buffer) => $default,
+            AudioBufferRef::S16($buffer) => $default,
+            AudioBufferRef::S24($buffer) => $default,
+            AudioBufferRef::S32($buffer) => $default,
+            AudioBufferRef::F32($buffer) => $default,
+            AudioBufferRef::F64($buffer) => $f64,
+        }
+    };
+}
+
 pub(super) struct RubatoResamplerBuffered {
     resampler: RubatoResampler,
     buffer: ResamplerBuffer,
+    symphonia_audio_buffer: Option<AudioBuffer<f64>>
 }
 
 impl RubatoResamplerBuffered {
@@ -62,6 +79,7 @@ impl RubatoResamplerBuffered {
                 output_sample_rate,
             )?,
             buffer: ResamplerBuffer::new(channels.count(), chunk_size),
+            symphonia_audio_buffer: None,
         })
     }
 
@@ -81,7 +99,7 @@ impl RubatoResamplerBuffered {
         &'r mut self,
         buffer: &SampleBuf,
     ) -> Result<BufferedResamples<'r>, ResamplerError> {
-        self.buffer.fill(buffer.as_ref());
+        self.buffer.fill_vec(buffer.as_ref());
         Ok(BufferedResamples {
             resampler: &mut self.resampler,
             buffer_iter: self.buffer.iter(),
@@ -92,7 +110,21 @@ impl RubatoResamplerBuffered {
         &mut self,
         buffer: AudioBufferRef,
     ) -> Result<BufferedResamples, ResamplerError> {
-        todo!();
+        let buffer_f64 = match self.symphonia_audio_buffer.as_mut() {
+            Some(buffer) => buffer,
+            None => {
+                self.symphonia_audio_buffer = Some(buffer.make_equivalent());
+                self.symphonia_audio_buffer.as_mut().unwrap()
+            },
+        };
+        let buffer = match_symphonia_buffer!(|buffer| {
+            f64 => buffer,
+            _ => {
+                buffer.convert(buffer_f64);
+                Cow::Borrowed(self.symphonia_audio_buffer.as_ref().unwrap())
+            }
+        });
+        self.buffer.fill(buffer.planes().planes());
         Ok(BufferedResamples {
             resampler: &mut self.resampler,
             buffer_iter: self.buffer.iter(),
@@ -200,20 +232,16 @@ impl RubatoResampler {
     }
 
     fn resample_symphonia(&mut self, buffer: AudioBufferRef) -> Result<&SampleBuf, ResamplerError> {
-        match buffer {
-            AudioBufferRef::U8(cow) => todo!(),
-            AudioBufferRef::U16(cow) => todo!(),
-            AudioBufferRef::U24(cow) => todo!(),
-            AudioBufferRef::U32(cow) => todo!(),
-            AudioBufferRef::S8(cow) => todo!(),
-            AudioBufferRef::S16(cow) => todo!(),
-            AudioBufferRef::S24(cow) => todo!(),
-            AudioBufferRef::S32(cow) => todo!(),
-            AudioBufferRef::F32(cow) => todo!(),
-            AudioBufferRef::F64(buffer) => {
-                self.resample_slice(buffer.planes().planes(), buffer.frames())
+        let buffer = match_symphonia_buffer!(|buffer| {
+            f64 => buffer,
+            _ => {
+                let mut buffer_f64 = buffer.make_equivalent::<f64>();
+                buffer.convert(&mut buffer_f64);
+                Cow::Owned(buffer_f64)
             }
-        }
+        });
+        let planes = buffer.planes();
+        self.resample_slice(planes.planes(), buffer.frames())
     }
 
     fn resample_slice<B: AsRef<[f64]>>(
@@ -262,13 +290,53 @@ impl ResamplerBuffer {
             .push((0..self.channels).map(|c| Vec::with_capacity(c)).collect());
     }
 
-    fn fill(&mut self, input: &[Vec<f64>]) {
+    fn fill(&mut self, input: &[&[f64]]) {
         assert_eq!(self.channels, input.len());
-        println!(
-            "fill buffers: {} {}",
-            self.available_all(),
-            self.buffers.len()
-        );
+        // println!(
+        //     "fill buffers: {} {}",
+        //     self.available_all(),
+        //     self.buffers.len()
+        // );
+        while self.available_all() < input[0].len() {
+            self.add_buffer();
+        }
+        let mut current_buffer = self.current_buffer;
+        for channel in 0..self.channels {
+            current_buffer = self.current_buffer;
+            let mut input_position = 0;
+            while input_position < input[channel].len() {
+                let next_position = min(
+                    input[channel].len(),
+                    input_position + self.available(current_buffer, channel),
+                );
+                // println!(
+                //     "position: {} available: {} next_position: {} current_buffer: {} current_len: {}",
+                //     input_position,
+                //     self.available(current_buffer, channel),
+                //     next_position,
+                //     current_buffer,
+                //     self.buffers[current_buffer][channel].len()
+                // );
+                self.buffers[current_buffer][channel]
+                    .extend_from_slice(&input[channel][input_position..next_position]);
+
+                if self.available(current_buffer, channel) == 0 {
+                    current_buffer = self.next_buffer(current_buffer);
+                }
+                input_position = next_position
+            }
+        }
+        self.current_buffer = current_buffer;
+    }
+
+    // TODO: reuse `fill``
+    fn fill_vec(&mut self, input: &[Vec<f64>]) {
+        assert_eq!(self.channels, input.len());
+        // println!(
+        //     "fill buffers: {} {}",
+        //     self.available_all(),
+        //     self.buffers.len()
+        // );
         while self.available_all() < input[0].len() {
             self.add_buffer();
         }
