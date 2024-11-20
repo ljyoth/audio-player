@@ -1,0 +1,2 @@
+# Audio Player
+The core library to play a file built on top of [symphonia](https://github.com/pdeljanov/Symphonia), [rubato](https://github.com/HEnquist/rubato), and [cpal](https://github.com/RustAudio/cpal).
