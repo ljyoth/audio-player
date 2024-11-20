@@ -11,7 +11,7 @@ use symphonia::core::{
 };
 use tracing::info;
 
-use crate::{Track, TrackDetails};
+use crate::{buffer::SampleBuffer, Track, TrackDetails};
 
 #[derive(Debug, thiserror::Error)]
 pub(super) enum DecoderError {
@@ -72,7 +72,7 @@ impl DecodedTrack {
     }
 
     // TODO: return SampleBuffer
-    pub(super) fn next(&mut self) -> Result<AudioBufferRef, DecoderError> {
+    pub(super) fn next(&mut self) -> Result<SampleBuffer, DecoderError> {
         let packet = match self.next_packet.take() {
             Some(packet) => {
                 self.next_packet = None;
@@ -91,7 +91,18 @@ impl DecodedTrack {
             }
         }
 
-        let decoded = self.decoder.decode(&packet)?;
+        let decoded = match self.decoder.decode(&packet)? {
+            AudioBufferRef::U8(buffer) => buffer.into(),
+            AudioBufferRef::U16(buffer) => buffer.into(),
+            AudioBufferRef::U24(buffer) => buffer.into(),
+            AudioBufferRef::U32(buffer) => buffer.into(),
+            AudioBufferRef::S8(buffer) => buffer.into(),
+            AudioBufferRef::S16(buffer) => buffer.into(),
+            AudioBufferRef::S24(buffer) => buffer.into(),
+            AudioBufferRef::S32(buffer) => buffer.into(),
+            AudioBufferRef::F32(buffer) => buffer.into(),
+            AudioBufferRef::F64(buffer) => buffer.into(),
+        };
         Ok(decoded)
     }
 

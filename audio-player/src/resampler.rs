@@ -1,20 +1,17 @@
 use core::panic;
-use std::{borrow::Cow, collections::VecDeque};
+use std::collections::VecDeque;
 
 use rubato::{
     ResampleError, Resampler, ResamplerConstructionError, SincFixedIn, SincInterpolationParameters,
     SincInterpolationType, WindowFunction,
 };
 use symphonia::core::{
-    audio::{AsAudioBufferRef, AudioBuffer, AudioBufferRef, Channels, Signal, SignalSpec},
+    audio::Channels,
     codecs::{self, CodecParameters},
-    conv::IntoSample,
-    sample::Sample,
-    units::Duration,
 };
 use tracing::{debug, info};
 
-use crate::{buffer::SampleBuffer, output};
+use crate::buffer::SampleBuffer;
 
 #[derive(Debug, thiserror::Error)]
 pub(super) enum ResamplerError {
@@ -26,14 +23,13 @@ pub(super) enum ResamplerError {
     RubatoResample(#[from] ResampleError),
 }
 
-pub(super) struct SymphoniaResamplerBuffered {
-    resampler: SymphoniaResampler,
-    // queue: VecDeque<f64>,
-    queue: VecDeque<AudioBuffer<f64>>,
+pub(super) struct RubatoResamplerBuffered {
+    resampler: RubatoResampler,
+    queue: VecDeque<SampleBuffer>,
     buffer_position: usize,
 }
 
-impl SymphoniaResamplerBuffered {
+impl RubatoResamplerBuffered {
     const DEFAULT_CHUNK_SIZE: usize = 1024;
 
     pub(super) fn new(
@@ -57,7 +53,7 @@ impl SymphoniaResamplerBuffered {
             .ok_or(ResamplerError::InvalidCodecParameters)?;
 
         Ok(Self {
-            resampler: SymphoniaResampler::new_inner(
+            resampler: RubatoResampler::new_inner(
                 input_sample_rate,
                 chunk_size,
                 channels,
@@ -70,65 +66,10 @@ impl SymphoniaResamplerBuffered {
 
     pub(super) fn resample(
         &mut self,
-        buffer: AudioBufferRef,
-    ) -> Result<SymphoniaBufferedResamples, ResamplerError> {
-        // TODO: reduce allocations
-        let mut b = AudioBuffer::new(buffer.capacity() as u64, *buffer.spec());
-        buffer.convert(&mut b);
-        self.queue.push_back(b);
-        Ok(SymphoniaBufferedResamples { resampler: self })
-        // match buffer {
-        //     AudioBufferRef::U8(ref buffer) => fill_f64_buffer_3(
-        //         buffer,
-        //         self.buffer_position,
-        //         &mut self.resampler.input_buffer,
-        //     ),
-        //     AudioBufferRef::U16(ref buffer) => fill_f64_buffer_3(
-        //         buffer,
-        //         self.buffer_position,
-        //         &mut self.resampler.input_buffer,
-        //     ),
-        //     AudioBufferRef::U24(ref buffer) => fill_f64_buffer_3(
-        //         buffer,
-        //         self.buffer_position,
-        //         &mut self.resampler.input_buffer,
-        //     ),
-        //     AudioBufferRef::U32(ref buffer) => fill_f64_buffer_3(
-        //         buffer,
-        //         self.buffer_position,
-        //         &mut self.resampler.input_buffer,
-        //     ),
-        //     AudioBufferRef::S8(ref buffer) => fill_f64_buffer_3(
-        //         buffer,
-        //         self.buffer_position,
-        //         &mut self.resampler.input_buffer,
-        //     ),
-        //     AudioBufferRef::S16(ref buffer) => fill_f64_buffer_3(
-        //         buffer,
-        //         self.buffer_position,
-        //         &mut self.resampler.input_buffer,
-        //     ),
-        //     AudioBufferRef::S24(ref buffer) => fill_f64_buffer_3(
-        //         buffer,
-        //         self.buffer_position,
-        //         &mut self.resampler.input_buffer,
-        //     ),
-        //     AudioBufferRef::S32(ref buffer) => fill_f64_buffer_3(
-        //         buffer,
-        //         self.buffer_position,
-        //         &mut self.resampler.input_buffer,
-        //     ),
-        //     AudioBufferRef::F32(ref buffer) => fill_f64_buffer_3(
-        //         buffer,
-        //         self.buffer_position,
-        //         &mut self.resampler.input_buffer,
-        //     ),
-        //     AudioBufferRef::F64(ref buffer) => fill_f64_buffer_3(
-        //         buffer,
-        //         self.buffer_position,
-        //         &mut self.resampler.input_buffer,
-        //     ),
-        // };
+        buffer: SampleBuffer,
+    ) -> Result<BufferedResamples, ResamplerError> {
+        self.queue.push_back(buffer);
+        Ok(BufferedResamples { resampler: self })
     }
 
     fn resample_next(&mut self) -> Result<Option<&SampleBuffer>, ResamplerError> {
@@ -144,7 +85,7 @@ impl SymphoniaResamplerBuffered {
                 Some(buffer) => buffer,
                 None => return Ok(None),
             };
-            self.buffer_position = fill_f64_buffer_21(
+            self.buffer_position = fill_f64_buffer_22(
                 buffer,
                 self.buffer_position,
                 &mut self.resampler.input_buffer,
@@ -164,26 +105,24 @@ impl SymphoniaResamplerBuffered {
     }
 }
 
-pub(super) struct SymphoniaBufferedResamples<'r> {
-    resampler: &'r mut SymphoniaResamplerBuffered,
+pub(super) struct BufferedResamples<'r> {
+    resampler: &'r mut RubatoResamplerBuffered,
 }
 
-impl<'r> SymphoniaBufferedResamples<'r> {
+impl<'r> BufferedResamples<'r> {
     pub(super) fn next<'a>(&'a mut self) -> Option<Result<&SampleBuffer, ResamplerError>> {
         self.resampler.resample_next().transpose()
     }
 }
 
-pub(super) struct SymphoniaResampler {
+pub(super) struct RubatoResampler {
     resampler: SincFixedIn<f64>,
     input_buffer: Vec<Vec<f64>>,
     output_buffer: SampleBuffer,
     output_buffer_frames: usize,
-    output_audio_buffer: AudioBuffer<f64>,
-    interleaved: Vec<f64>,
 }
 
-impl SymphoniaResampler {
+impl RubatoResampler {
     fn new_inner(
         input_sample_rate: u32,
         chunk_size: usize,
@@ -219,29 +158,12 @@ impl SymphoniaResampler {
         let output_buffer = resampler.output_buffer_allocate(true);
         let output_buffer = SampleBuffer::with_buffer(output_buffer);
         let output_buffer_frames = output_buffer.frames();
-        let interleaved = Vec::with_capacity(output_buffer.channels() * output_buffer.frames());
 
-        let output_audio_buffer = AudioBuffer::new(
-            output_buffer.frames() as Duration,
-            SignalSpec {
-                rate: output_sample_rate,
-                channels,
-            },
-        );
-        info!(
-            "output_buffer_len: {} interleaved_length: {} output_buffer_capacity: {} output_buffer_frames: {}\n",
-            output_buffer.frames(),
-            interleaved.len(),
-            output_audio_buffer.capacity(),
-            output_audio_buffer.frames()
-        );
         Ok(Self {
             resampler,
             input_buffer,
             output_buffer,
             output_buffer_frames,
-            output_audio_buffer,
-            interleaved,
         })
     }
 
@@ -259,19 +181,6 @@ impl SymphoniaResampler {
             .channels
             .ok_or(ResamplerError::InvalidCodecParameters)?;
         Self::new_inner(input_sample_rate, chunk_size, channels, output_sample_rate)
-    }
-
-    pub(super) fn new_with_buffer(
-        buffer: &AudioBufferRef,
-        output_sample_rate: u32,
-    ) -> Result<Self, ResamplerError> {
-        let spec = buffer.spec();
-        Self::new_inner(
-            spec.rate,
-            buffer.frames(),
-            spec.channels,
-            output_sample_rate,
-        )
     }
 
     fn resample_inner(&mut self) -> Result<&SampleBuffer, ResamplerError> {
@@ -295,84 +204,14 @@ impl SymphoniaResampler {
         self.output_buffer
             .resize(self.output_buffer.channels(), output_frames);
 
-        debug!(
-            "input: {} output: {} output_buffer_capacity: {} output_buffer_frames: {}",
-            input_frames,
-            output_frames,
-            self.output_audio_buffer.capacity(),
-            self.output_audio_buffer.frames()
-        );
+        debug!("input: {} output: {}", input_frames, output_frames,);
         Ok(&self.output_buffer)
     }
-
-    pub(super) fn resample_buffer(
-        &mut self,
-        buffer: AudioBufferRef,
-    ) -> Result<&SampleBuffer, ResamplerError> {
-        match buffer {
-            AudioBufferRef::U8(ref buffer) => fill_f64_buffer(buffer, &mut self.input_buffer),
-            AudioBufferRef::U16(ref buffer) => fill_f64_buffer(buffer, &mut self.input_buffer),
-            AudioBufferRef::U24(ref buffer) => fill_f64_buffer(buffer, &mut self.input_buffer),
-            AudioBufferRef::U32(ref buffer) => fill_f64_buffer(buffer, &mut self.input_buffer),
-            AudioBufferRef::S8(ref buffer) => fill_f64_buffer(buffer, &mut self.input_buffer),
-            AudioBufferRef::S16(ref buffer) => fill_f64_buffer(buffer, &mut self.input_buffer),
-            AudioBufferRef::S24(ref buffer) => fill_f64_buffer(buffer, &mut self.input_buffer),
-            AudioBufferRef::S32(ref buffer) => fill_f64_buffer(buffer, &mut self.input_buffer),
-            AudioBufferRef::F32(ref buffer) => fill_f64_buffer(buffer, &mut self.input_buffer),
-            AudioBufferRef::F64(ref buffer) => fill_f64_buffer(buffer, &mut self.input_buffer),
-        };
-
-        self.resampler.set_chunk_size(buffer.frames())?;
-        self.resample_inner()
-        // debug!(
-        //     "input_buffer: {} input: {} output: {} output_buffer_capacity: {} output_buffer_frames: {}",
-        //     buffer.frames(),
-        //     input_frames,
-        //     output_frames,
-        //     self.output_audio_buffer.capacity(),
-        //     self.output_audio_buffer.frames()
-        // );
-    }
-}
-
-fn fill_f64_buffer<S: Sample + IntoSample<f64>>(
-    buffer: &Cow<'_, AudioBuffer<S>>,
-    f64_buffer: &mut Vec<Vec<f64>>,
-) {
-    (0..f64_buffer.len()).for_each(|c| {
-        f64_buffer[c].clear();
-        buffer
-            .chan(c)
-            .iter()
-            .for_each(|&s| f64_buffer[c].push(s.into_sample()));
-    })
 }
 
 /// `end`: Exclusive
-fn fill_f64_buffer_2<S: Sample + IntoSample<f64>>(
-    buffer: &Cow<'_, AudioBuffer<S>>,
-    start: usize,
-    f64_buffer: &mut Vec<Vec<f64>>,
-) -> usize {
-    let mut next = start;
-    (0..f64_buffer.len()).for_each(|c| {
-        let to_take = f64_buffer[c].capacity() - f64_buffer.len();
-        buffer
-            .chan(c)
-            .iter()
-            .skip(start)
-            .take(to_take)
-            .for_each(|&s| {
-                f64_buffer[c].push(s.into_sample());
-                next += 1;
-            });
-    });
-    next
-}
-
-/// `end`: Exclusive
-fn fill_f64_buffer_21<S: Sample + IntoSample<f64>>(
-    buffer: &AudioBuffer<S>,
+fn fill_f64_buffer_22(
+    buffer: &SampleBuffer,
     start: usize,
     f64_buffer: &mut Vec<Vec<f64>>,
 ) -> usize {
@@ -386,12 +225,13 @@ fn fill_f64_buffer_21<S: Sample + IntoSample<f64>>(
             f64_buffer[c].len()
         );
         buffer
-            .chan(c)
+            .samples(c)
+            .unwrap()
             .iter()
             .skip(start)
             .take(to_take)
             .for_each(|&s| {
-                f64_buffer[c].push(s.into_sample());
+                f64_buffer[c].push(s);
                 pushed += 1;
             });
         println!("pushed: {} cap: {}", pushed, f64_buffer[0].capacity());
@@ -400,15 +240,4 @@ fn fill_f64_buffer_21<S: Sample + IntoSample<f64>>(
         }
     });
     pushed / f64_buffer.len() + start
-}
-
-fn fill_f64_buffer_3<S: Sample + IntoSample<f64>>(
-    buffer: &Cow<'_, AudioBuffer<S>>,
-    f64_buffer: &mut Vec<VecDeque<f64>>,
-) {
-    (0..f64_buffer.len()).for_each(|c| {
-        buffer.chan(c).iter().for_each(|&s| {
-            f64_buffer[c].push_back(s.into_sample());
-        });
-    });
 }

@@ -4,10 +4,7 @@ use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
     Device, Sample, SizedSample, Stream, StreamError, SupportedStreamConfig,
 };
-use symphonia::core::{
-    audio::{AudioBufferRef, SampleBuffer as SymphoniaSampleBuffer},
-    conv::ConvertibleSample,
-};
+use symphonia::core::conv::ConvertibleSample;
 use tracing::info;
 
 use crate::buffer::SampleBuffer;
@@ -33,9 +30,7 @@ pub(super) enum AudioOutputError {
 }
 
 pub(super) trait AudioOutputWrite {
-    // TODO: create shared AudioBufferRef
     fn write(&mut self, data: &SampleBuffer);
-    fn write_symphonia(&mut self, data: AudioBufferRef);
     fn play(&mut self) -> Result<(), AudioOutputError>;
     fn pause(&mut self) -> Result<(), AudioOutputError>;
     fn sample_rate(&self) -> u32;
@@ -136,14 +131,6 @@ impl AudioOutputWrite for AudioOutputWriter {
         }
     }
 
-    fn write_symphonia(&mut self, data: AudioBufferRef) {
-        match self {
-            AudioOutputWriter::Cpal(writer) => {
-                match_cpal_audio_output_writer!(|writer| writer.write_symphonia(data))
-            }
-        }
-    }
-
     fn play(&mut self) -> Result<(), AudioOutputError> {
         match self {
             AudioOutputWriter::Cpal(writer) => {
@@ -217,20 +204,6 @@ impl<T: SizedSample + cpal::FromSample<f64> + ConvertibleSample + Send + 'static
         for sample in samples.interleaved() {
             self.tx.send(sample.to_sample()).unwrap();
         }
-    }
-
-    fn write_symphonia(&mut self, buffer: AudioBufferRef) {
-        if buffer.frames() == 0 {
-            return;
-        }
-        let spec = buffer.spec();
-
-        let duration = buffer.capacity() as u64;
-        let mut sample_buffer = SymphoniaSampleBuffer::<T>::new(duration.into(), *spec);
-        sample_buffer.copy_interleaved_ref(buffer);
-        sample_buffer.samples().iter().for_each(|&s| {
-            self.tx.send(s).unwrap();
-        })
     }
 
     fn play(&mut self) -> Result<(), AudioOutputError> {

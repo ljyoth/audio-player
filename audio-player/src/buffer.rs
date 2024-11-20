@@ -1,3 +1,11 @@
+use std::borrow::Cow;
+
+use symphonia::core::{
+    audio::{AudioBuffer, Signal},
+    conv::IntoSample,
+    sample::Sample,
+};
+
 /// planar format
 pub(super) struct SampleBuffer {
     // TODO: support other types
@@ -69,5 +77,16 @@ impl AsRef<[Vec<f64>]> for SampleBuffer {
 impl AsMut<[Vec<f64>]> for SampleBuffer {
     fn as_mut(&mut self) -> &mut [Vec<f64>] {
         &mut self.buffer
+    }
+}
+
+impl<T: Sample + IntoSample<f64>> From<Cow<'_, AudioBuffer<T>>> for SampleBuffer {
+    /// This will clone
+    fn from(buffer: Cow<'_, AudioBuffer<T>>) -> Self {
+        let mut s = Self::with_capacity(buffer.spec().channels.count(), buffer.frames());
+        for (c, channel) in s.buffer.iter_mut().enumerate() {
+            channel.extend(buffer.chan(c).iter().map(|&s| s.into_sample()))
+        }
+        s
     }
 }

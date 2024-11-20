@@ -13,7 +13,7 @@ use std::{
 use crate::{
     decoder::{self, DecodedTrack, DecoderError},
     output::{AudioOutputWrite, AudioOutputWriter},
-    resampler::{ResamplerError, SymphoniaResamplerBuffered},
+    resampler::{ResamplerError, RubatoResamplerBuffered},
     track::Track,
 };
 
@@ -186,7 +186,7 @@ impl AudioPlayerExecutor {
                     {
                         None
                     } else {
-                        match SymphoniaResamplerBuffered::new(
+                        match RubatoResamplerBuffered::new(
                             track.codec_params(),
                             output.sample_rate(),
                         ) {
@@ -229,13 +229,13 @@ impl AudioPlayerExecutor {
 
                         if let Ok(buffer) = track.next() {
                             if let Some(ref mut resampler) = resampler {
-                                let mut samples = resampler.resample(buffer.to_owned())?;
+                                let mut samples = resampler.resample(buffer)?;
                                 while let Some(sample) = samples.next() {
                                     output.write(sample?);
                                 }
                                 // output.write(resampler.resample_buffer(buffer)?);
                             } else {
-                                output.write_symphonia(buffer);
+                                output.write(&buffer);
                             }
                         } else {
                             break;
