@@ -163,8 +163,7 @@ impl AudioPlayerApplication {
                     let separator = Space::with_height(10);
                     let cover = match track.details().cover() {
                         Some(cover) => {
-                            // TODO: avoid clones
-                            let handle = image::Handle::from_bytes(cover.data.clone());
+                            let handle = image::Handle::from_bytes(cover.data().clone());
                             image::Image::new(handle).height(Length::Fill).into()
                         }
                         None => Element::from(Space::with_height(Length::Fill)),

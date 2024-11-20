@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{rc::Rc, time::Duration};
 
 use symphonia::core::{
     meta::{MetadataRevision, StandardTagKey, StandardVisualKey, Value, Visual},
@@ -24,9 +24,7 @@ pub struct TrackDetails {
     duration: Option<Duration>,
     title: Option<String>,
     artist: Option<String>,
-
-    // TODO: custom Image type
-    cover: Option<Visual>,
+    cover: Option<Cover>,
 }
 
 impl TrackDetails {
@@ -89,7 +87,9 @@ impl TrackDetails {
                     false
                 }
             })
-            .cloned();
+            .map(|v| Cover {
+                data: v.data.clone(),
+            });
         metadata.tags().iter().for_each(|tag| match tag.std_key {
             Some(StandardTagKey::TrackTitle) => {
                 new.title = match &tag.value {
@@ -120,8 +120,18 @@ impl TrackDetails {
         self.artist.as_deref()
     }
 
-    pub fn cover(&self) -> Option<&Visual> {
+    pub fn cover(&self) -> Option<&Cover> {
         self.cover.as_ref()
     }
+}
 
+#[derive(Debug, Clone)]
+pub struct Cover {
+    data: Box<[u8]>,
+}
+
+impl Cover {
+    pub fn data(&self) -> &Box<[u8]> {
+        &self.data
+    }
 }

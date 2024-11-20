@@ -1,7 +1,6 @@
 use std::{fs::File, path::Path, time::Duration};
 
 use symphonia::core::{
-    audio::AudioBufferRef,
     codecs::{CodecParameters, Decoder, DecoderOptions},
     formats::{FormatOptions, FormatReader, Packet, SeekMode, SeekTo},
     io::MediaSourceStream,
