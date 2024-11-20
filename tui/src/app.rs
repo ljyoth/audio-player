@@ -54,6 +54,7 @@ impl AudioPlayerApplication {
         let file_path = track.file_path().to_string_lossy();
         let track_title = track.details().title().unwrap_or_default();
         let track_artist = track.details().artist().unwrap_or_default();
+        let mut drag_progress = None;
         loop {
             let position = self
                 .player
@@ -66,6 +67,10 @@ impl AudioPlayerApplication {
                 .cloned()
                 .unwrap_or(Duration::from_secs(0));
             terminal.draw(|frame| {
+                let position = match drag_progress {
+                    Some(position) => position,
+                    None => position,
+                };
                 let progress_bar = Gauge::default()
                     .ratio(position.as_micros() as f64 / duration.as_micros() as f64)
                     .use_unicode(true)
@@ -130,12 +135,24 @@ impl AudioPlayerApplication {
                                     x: mouse.column,
                                     y: mouse.row,
                                 }) {
-                                    // TODO: drag will update UI
+                                    drag_progress = None;
                                     let seek_position = mouse.column as f64 / rect.width as f64
                                         * duration.as_secs_f64();
                                     self.player
                                         .controller()
                                         .seek(Duration::from_secs_f64(seek_position))
+                                }
+                            }
+                        }
+                        event::MouseEventKind::Drag(MouseButton::Left) => {
+                            if let Some(rect) = seekbar_rect {
+                                if rect.contains(Position {
+                                    x: mouse.column,
+                                    y: mouse.row,
+                                }) {
+                                    let seek_position = mouse.column as f64 / rect.width as f64
+                                        * duration.as_secs_f64();
+                                    drag_progress = Some(Duration::from_secs_f64(seek_position));
                                 }
                             }
                         }
