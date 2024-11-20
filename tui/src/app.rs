@@ -5,7 +5,7 @@ use std::{
 };
 
 use audio_player::{AudioPlayer, TrackDetails};
-use color_eyre::eyre::{Ok, Result};
+use color_eyre::eyre::{eyre, Error, Ok, Result};
 use ratatui::{
     crossterm::{
         event::{self, Event, KeyCode, KeyEventKind, MouseButton},
@@ -47,37 +47,20 @@ impl AudioPlayerApplication {
         const FPS: u64 = 240;
         self.player.controller().play();
         let mut seekbar_rect = None;
-        let file_path = self
-            .track
-            .as_ref()
-            .expect("todo")
-            .file_path()
-            .to_string_lossy();
-        let track_title = self
-            .track
-            .as_ref()
-            .expect("todo")
-            .details()
-            .title()
-            .unwrap_or_default();
-        let track_artist = self
-            .track
-            .as_ref()
-            .expect("todo")
-            .details()
-            .artist()
-            .unwrap_or_default();
+        let track = match self.track {
+            Some(track) => track,
+            None => panic!("track unavailable"),
+        };
+        let file_path = track.file_path().to_string_lossy();
+        let track_title = track.details().title().unwrap_or_default();
+        let track_artist = track.details().artist().unwrap_or_default();
         loop {
             let position = self
                 .player
                 .controller()
                 .position()
                 .unwrap_or(Duration::from_secs(0));
-            let duration = self
-                .track
-                .as_ref()
-                // TODO: do not unwrap
-                .unwrap()
+            let duration = track
                 .details()
                 .duration()
                 .cloned()
@@ -98,7 +81,6 @@ impl AudioPlayerApplication {
                 let track_info = Paragraph::new(Text::from(vec![
                     Line::from(format!("Title: {}", track_title)),
                     Line::from(format!("Artist: {}", track_artist)),
-                    
                 ]))
                 .block(Block::new().title(format!("Playing: {}", file_path)));
 
