@@ -96,3 +96,19 @@ impl<T: Sample + IntoSample<f64>> From<Cow<'_, AudioBuffer<T>>> for SampleBuf {
         s
     }
 }
+
+pub(super) trait AsSlice<Item> {
+    fn as_slice(&self) -> &[Item];
+}
+
+impl<T> AsSlice<T> for &[T] {
+    fn as_slice(&self) -> &[T] {
+        self
+    }
+}
+
+impl<T> AsSlice<T> for Vec<T> {
+    fn as_slice(&self) -> &[T] {
+        self
+    }
+}

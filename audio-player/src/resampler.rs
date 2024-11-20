@@ -10,7 +10,7 @@ use symphonia::core::{
 };
 use tracing::debug;
 
-use crate::buffer::{SampleBuf, SampleBuffer};
+use crate::buffer::{AsSlice, SampleBuf, SampleBuffer};
 
 #[derive(Debug, thiserror::Error)]
 pub(super) enum ResamplerError {
@@ -99,7 +99,7 @@ impl RubatoResamplerBuffered {
         &'r mut self,
         buffer: &SampleBuf,
     ) -> Result<BufferedResamples<'r>, ResamplerError> {
-        self.buffer.fill_vec(buffer.as_ref());
+        self.buffer.fill(buffer.as_ref());
         Ok(BufferedResamples {
             resampler: &mut self.resampler,
             buffer_iter: self.buffer.iter(),
@@ -125,9 +125,10 @@ impl RubatoResamplerBuffered {
             }
         });
         self.buffer.fill(buffer.planes().planes());
+        let iter = self.buffer.iter();
         Ok(BufferedResamples {
             resampler: &mut self.resampler,
-            buffer_iter: self.buffer.iter(),
+            buffer_iter: iter,
         })
     }
 }
@@ -143,16 +144,6 @@ impl<'r> BufferedResamples<'r> {
             Some(buffer) => Some(self.resampler.resample_slice(buffer, buffer[0].len())),
             None => None,
         }
-    }
-
-    // fn clear(&mut self) {
-    //     self.buffer_iter.clear();
-    // }
-}
-
-impl<'r> Drop for BufferedResamples<'r> {
-    fn drop(&mut self) {
-        // todo!("clear buffer")
     }
 }
 
@@ -290,23 +281,23 @@ impl ResamplerBuffer {
             .push((0..self.channels).map(|c| Vec::with_capacity(c)).collect());
     }
 
-    fn fill(&mut self, input: &[&[f64]]) {
+    fn fill<B: AsSlice<f64>>(&mut self, input: &[B]) {
         assert_eq!(self.channels, input.len());
         // println!(
         //     "fill buffers: {} {}",
         //     self.available_all(),
         //     self.buffers.len()
         // );
-        while self.available_all() < input[0].len() {
+        while self.available_all() < input[0].as_slice().len() {
             self.add_buffer();
         }
         let mut current_buffer = self.current_buffer;
         for channel in 0..self.channels {
             current_buffer = self.current_buffer;
             let mut input_position = 0;
-            while input_position < input[channel].len() {
+            while input_position < input[channel].as_slice().len() {
                 let next_position = min(
-                    input[channel].len(),
+                    input[channel].as_slice().len(),
                     input_position + self.available(current_buffer, channel),
                 );
                 // println!(
@@ -318,47 +309,7 @@ impl ResamplerBuffer {
                 //     self.buffers[current_buffer][channel].len()
                 // );
                 self.buffers[current_buffer][channel]
-                    .extend_from_slice(&input[channel][input_position..next_position]);
-
-                if self.available(current_buffer, channel) == 0 {
-                    current_buffer = self.next_buffer(current_buffer);
-                }
-                input_position = next_position
-            }
-        }
-        self.current_buffer = current_buffer;
-    }
-
-    // TODO: reuse `fill``
-    fn fill_vec(&mut self, input: &[Vec<f64>]) {
-        assert_eq!(self.channels, input.len());
-        // println!(
-        //     "fill buffers: {} {}",
-        //     self.available_all(),
-        //     self.buffers.len()
-        // );
-        while self.available_all() < input[0].len() {
-            self.add_buffer();
-        }
-        let mut current_buffer = self.current_buffer;
-        for channel in 0..self.channels {
-            current_buffer = self.current_buffer;
-            let mut input_position = 0;
-            while input_position < input[channel].len() {
-                let next_position = min(
-                    input[channel].len(),
-                    input_position + self.available(current_buffer, channel),
-                );
-                // println!(
-                //     "position: {} available: {} next_position: {} current_buffer: {} current_len: {}",
-                //     input_position,
-                //     self.available(current_buffer, channel),
-                //     next_position,
-                //     current_buffer,
-                //     self.buffers[current_buffer][channel].len()
-                // );
-                self.buffers[current_buffer][channel]
-                    .extend_from_slice(&input[channel][input_position..next_position]);
+                    .extend_from_slice(&input[channel].as_slice()[input_position..next_position]);
 
                 if self.available(current_buffer, channel) == 0 {
                     current_buffer = self.next_buffer(current_buffer);
