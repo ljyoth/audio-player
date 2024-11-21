@@ -1,0 +1,81 @@
+name: Release
+on:
+  push:
+    release:
+      types:
+        - published
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-upload:
+    name: Build and upload
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        include:
+          - build: windows
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+
+          - build: linux
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+
+          # - build: macos
+          #   os: macos-latest
+          #   target: x86_64-apple-darwin
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get the release version from the tag
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+      - name: Setup rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install dependencies (Linux)
+        if: matrix.build == 'linux'
+        run: sudo apt install libasound2-dev
+
+      - name: Build
+        run: cargo build --verbose --release --target ${{ matrix.target }}
+
+      - name: Build archive (Windows)
+        if: matrix.build == 'windows'
+        shell: bash
+        run: |
+          DIRNAME="ap-${{ env.VERSION }}-${{ matrix.target }}"
+          mkdir "$DIRNAME"
+          mv "target/${{ matrix.target }}/release/ap.exe" "$DIRNAME"
+          mv "target/${{ matrix.target }}/release/ap-iced.exe" "$DIRNAME"
+          mv "target/${{ matrix.target }}/release/ap-tui.exe" "$DIRNAME"
+          7z a "$DIRNAME.zip" "$DIRNAME"
+          echo "ARCHIVE=$DIRNAME.zip" >> $GITHUB_ENV
+
+      - name: Build archive (Linux)
+        if: matrix.build == 'linux'
+        shell: bash
+        run: |
+          DIRNAME="ap-${{ env.VERSION }}-${{ matrix.target }}"
+          mkdir "$DIRNAME"
+          mv "target/${{ matrix.target }}/release/ap" "$DIRNAME"
+          mv "target/${{ matrix.target }}/release/ap-iced" "$DIRNAME"
+          mv "target/${{ matrix.target }}/release/ap-tui" "$DIRNAME"
+          tar czf "$DIRNAME.tar.gz" "$DIRNAME"
+          echo "ARCHIVE=$DIRNAME.tar.gz" >> $GITHUB_ENV
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ env.ARCHIVE }}
