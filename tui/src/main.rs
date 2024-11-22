@@ -26,10 +26,14 @@ fn main() -> Result<()> {
     });
     crossterm::execute!(
         terminal.backend_mut(),
-        crossterm::terminal::EnterAlternateScreen
+        crossterm::terminal::EnterAlternateScreen,
+        crossterm::event::EnableMouseCapture,
     )?;
     let result = app.run(&mut terminal);
+    crossterm::execute!(
+        terminal.backend_mut(),
+        crossterm::event::DisableMouseCapture
+    )?;
     ratatui::restore();
-    crossterm::execute!(terminal.backend_mut())?;
     result
 }
